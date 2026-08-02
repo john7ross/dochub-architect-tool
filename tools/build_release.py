@@ -63,7 +63,7 @@ TREES = ('app', 'docs', 'skills', 'tests', 'vendor', 'workflows', 'lib')
 FILES = ('README.md', 'README.ru.md', 'ARCHITECTURE.md', 'ARCHITECTURE.ru.md',
          'ROADMAP.md', 'ROADMAP.ru.md', 'CHANGELOG.md', 'SECURITY.md',
          'THIRD-PARTY-NOTICES.md', 'LICENSE', 'requirements.txt', 'pytest.ini',
-         'setup_assets.py', '.env.example')
+         'setup_assets.py', '.env.example', 'donate-qr.png')
 
 # Доменная схема и схемы сервисов у каждой компании свои: в архив они не
 # кладутся, пути к ним пользователь указывает в .env
