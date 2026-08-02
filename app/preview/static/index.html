@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>DocHub Architect — превью</title>
+<style>
+  :root {
+    --bg: #1e1f22; --panel: #2b2d30; --line: #3d3f43;
+    --text: #dfe1e5; --muted: #9aa0a6; --accent: #4c8df6; --error: #f4785f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--line); flex: none;
+  }
+  header .title { font-weight: 600; }
+  header .spacer { flex: 1; }
+  select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 8px; max-width: 46vw; font: inherit;
+  }
+  .status { color: var(--muted); font-size: 12px; }
+  .status.error { color: var(--error); }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--line); flex: none;
+    font-size: 12px; color: var(--muted);
+  }
+  .pane-head .name { color: var(--text); font-weight: 500; }
+  .pane-body { flex: 1; overflow: hidden; position: relative; background: #fff; }
+  .pane-body.dark-empty { background: var(--bg); }
+
+  /* Зум правой панели меняет viewBox корневого <svg>, а не CSS-трансформ
+     отдельных слоёв — поэтому масштабируется вся схема целиком. */
+  .pane-body svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  .pane-body svg.panning { cursor: grabbing; }
+
+  .zoom { display: flex; gap: 4px; }
+  .zoom button {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; width: 26px; height: 24px; cursor: pointer; font: inherit;
+  }
+  .zoom button:hover { border-color: var(--accent); }
+  .zoom button.wide { width: auto; padding: 0 8px; }
+
+  .message {
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 24px; color: var(--muted); background: var(--bg);
+  }
+  .message.error { color: var(--error); white-space: pre-wrap; }
+  .mxgraph-host { width: 100%; height: 100%; overflow: hidden; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">DocHub Architect — превью</span>
+  <select id="contexts" title="Контекст DocHub"></select>
+  <span class="spacer"></span>
+  <span class="status" id="status">загрузка…</span>
+</header>
+
+<main>
+  <section class="pane">
+    <div class="pane-head">
+      <span>Исходная схема</span>
+      <span class="name" id="source-name"></span>
+      <select id="pages" title="Страница схемы" hidden></select>
+      <span class="spacer" style="flex:1"></span>
+      <span class="zoom">
+        <button data-zoom="out" data-pane="source-body" title="Отдалить">−</button>
+        <button data-zoom="in" data-pane="source-body" title="Приблизить">+</button>
+        <button data-zoom="fit" data-pane="source-body" class="wide" title="Вписать">Вписать</button>
+        <button id="save-source" class="wide" disabled
+                title="Сохранить оригинал в SVG">Сохранить</button>
+      </span>
+    </div>
+    <div class="pane-body" id="source-body"></div>
+  </section>
+
+  <section class="pane">
+    <div class="pane-head">
+      <span>Сгенерированный DocHub</span>
+      <span class="name" id="yaml-name"></span>
+      <span class="spacer" style="flex:1"></span>
+      <span class="zoom">
+        <button data-zoom="out" data-pane="yaml-body" title="Отдалить">−</button>
+        <button data-zoom="in" data-pane="yaml-body" title="Приблизить">+</button>
+        <button data-zoom="fit" data-pane="yaml-body" class="wide" title="Вписать">Вписать</button>
+        <button data-save="yaml" class="wide" title="Скачать DocHub YAML">YAML</button>
+        <button data-save="puml" class="wide" title="Скачать исходник PlantUML">PUML</button>
+        <button data-save="svg" class="wide" title="Скачать картинку контекста">SVG</button>
+      </span>
+    </div>
+    <div class="pane-body" id="yaml-body"></div>
+  </section>
+</main>
+
+<script src="/vendor/viewer-static.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const contextsEl = $('contexts');
+
+let version = null;
+let currentContext = null;
+let sourceLoaded = false;
+let currentPage = 0;
+let sourceXml = null;
+
+function setStatus(text, isError) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle('error', Boolean(isError));
+}
+
+function showMessage(host, text, isError) {
+  host.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'message' + (isError ? ' error' : '');
+  div.textContent = text;
+  host.appendChild(div);
+}
+
+/* ---------- Левая панель: оригинал через движок drawio ---------- */
+
+async function loadSource() {
+  const host = $('source-body');
+  try {
+    const res = await fetch('/api/source');
+    const payload = await res.json();
+
+    if (!res.ok || payload.error) {
+      showMessage(host, payload.error || 'Не удалось отрисовать схему', true);
+      return;
+    }
+
+    host.innerHTML = '';
+
+    if (payload.kind === 'drawio') {
+      sourceXml = payload.data;
+      fillPages(payload.pages || []);
+
+      const div = document.createElement('div');
+      div.className = 'mxgraph mxgraph-host';
+      // Рисует движок самого drawio — это оригинал, а не реконструкция.
+      // lightbox выключен: иначе клик открывает схему картинкой поверх страницы
+      div.dataset.mxgraph = JSON.stringify({
+        xml: payload.data,
+        highlight: '#4c8df6',
+        lightbox: false,
+        nav: false,
+        resize: false,
+        fit: false,
+        toolbar: null,
+        page: currentPage
+      });
+      host.appendChild(div);
+      // При нулевом размере контейнера движок молча ничего не рисует:
+      // так бывает в свёрнутом окне или на скрытой вкладке
+      whenSized(host, () => renderGraph(div));
+    } else {
+      host.innerHTML = payload.data;
+      attachZoom(host.querySelector('svg'));
+    }
+
+    sourceLoaded = true;
+  } catch (e) {
+    showMessage(host, 'Ошибка загрузки исходной схемы: ' + e.message, true);
+  }
+}
+
+/* ---------- Страницы схемы ---------- */
+
+function fillPages(names) {
+  const select = $('pages');
+
+  // Селектор нужен только когда страниц больше одной
+  select.hidden = names.length < 2;
+  if (select.hidden) return;
+
+  select.innerHTML = '';
+  names.forEach((name, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = `${index + 1}. ${name}`;
+    select.appendChild(option);
+  });
+  select.value = String(currentPage);
+}
+
+/* ---------- Отрисовка графа drawio ---------- */
+
+function whenSized(element, callback) {
+  let done = false;
+
+  const run = () => {
+    if (done) return;
+    const box = element.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) {
+      done = true;
+      callback();
+      return true;
+    }
+    return false;
+  };
+
+  if (run()) return;
+
+  const observer = new ResizeObserver(() => {
+    if (run()) observer.disconnect();
+  });
+  observer.observe(element);
+
+  // Подстраховка: наблюдатель может не сработать, если размер появился
+  // не из-за раскладки — например, окно развернули из свёрнутого состояния
+  const timer = setInterval(() => {
+    if (done) clearInterval(timer);
+    else if (run()) {
+      clearInterval(timer);
+      observer.disconnect();
+    }
+  }, 500);
+}
+
+function renderGraph(div) {
+  // Явное создание надёжнее processElements(), который ищет по классу
+  GraphViewer.createViewerForElement(div);
+
+  // GraphViewer растягивает контейнер под натуральный размер схемы
+  // и задаёт это инлайном — иначе 100% у <svg> считаются от тысяч пикселей
+  ['width', 'height'].forEach(
+    (prop) => div.style.setProperty(prop, '100%', 'important')
+  );
+  div.style.setProperty('overflow', 'hidden', 'important');
+
+  const graphSvg = div.querySelector('svg');
+  if (!graphSvg) {
+    showMessage(
+      $('source-body'),
+      'Движок DrawIO не смог отрисовать схему. Попробуйте обновить страницу.',
+      true
+    );
+    return;
+  }
+
+  // Управление берём на себя, чтобы обе панели вели себя одинаково
+  attachZoom(graphSvg);
+  // Отдаём отрисованное серверу: тогда выгрузка картинки идёт тем же
+  // движком DrawIO, что и просмотр, и Draw.io Desktop не нужен
+  publishRenderedSource(graphSvg);
+}
+
+/* ---------- Отрисованный оригинал -> на сервер ---------- */
+
+function serialiseSvg(svg) {
+  // Копия: в оригинале мы меняем viewBox при зуме, а выгружать надо целое
+  const copy = svg.cloneNode(true);
+  const box = svg.zoomControls ? svg.getAttribute('data-home') : null;
+
+  copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  copy.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  if (box) copy.setAttribute('viewBox', box);
+  copy.style.removeProperty('width');
+  copy.style.removeProperty('height');
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + new XMLSerializer().serializeToString(copy);
+}
+
+async function publishRenderedSource(svg) {
+  try {
+    await fetch('/api/source.svg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/svg+xml' },
+      body: serialiseSvg(svg)
+    });
+    $('save-source').disabled = false;
+  } catch (e) {
+    /* выгрузка — не главное, молча продолжаем показывать схему */
+  }
+}
+
+function download(content, name, type) {
+  const blob = new Blob([content], { type });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function downloadSvg(svg, name) {
+  download(serialiseSvg(svg), name, 'image/svg+xml');
+}
+
+/* ---------- Выгрузка результата ---------- */
+
+async function saveGenerated(kind) {
+  const base = (currentContext || 'context').replace(/[^\w.-]/g, '_');
+
+  if (kind === 'svg') {
+    const svg = $('yaml-body').querySelector('svg');
+    if (svg) downloadSvg(svg, base + '.svg');
+    return;
+  }
+
+  const url = kind === 'yaml'
+    ? '/api/yaml'
+    : '/api/context.puml?id=' + encodeURIComponent(currentContext || '');
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setStatus(payload.error || 'не удалось выгрузить', true);
+      return;
+    }
+
+    const text = await res.text();
+    const name = kind === 'yaml'
+      ? ($('yaml-name').textContent || 'schema.yaml')
+      : base + '.puml';
+
+    download(text, name, 'text/plain;charset=utf-8');
+  } catch (e) {
+    setStatus('не удалось выгрузить: ' + e.message, true);
+  }
+}
+
+/* ---------- Правая панель: сгенерированный DocHub ---------- */
+
+async function loadContext(contextId) {
+  const host = $('yaml-body');
+  const url = '/api/context' + (contextId ? '?id=' + encodeURIComponent(contextId) : '');
+
+  try {
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      showMessage(host, payload.error || 'Не удалось отрисовать контекст', true);
+      return;
+    }
+
+    host.innerHTML = await res.text();
+    attachZoom(host.querySelector('svg'));
+  } catch (e) {
+    showMessage(host, 'Ошибка рендеринга: ' + e.message, true);
+  }
+}
+
+/* ---------- Зум через viewBox: масштабируется вся схема ---------- */
+
+function attachZoom(svg) {
+  if (!svg) return;
+
+  // Размеры приводим к viewBox, иначе часть содержимого
+  // масштабируется независимо от остального
+  if (!svg.getAttribute('viewBox')) {
+    let w = parseFloat(svg.getAttribute('width'));
+    let h = parseFloat(svg.getAttribute('height'));
+    if (!w || !h) {
+      // У графа drawio размеров нет — берём габариты содержимого
+      const bbox = svg.getBBox();
+      svg.setAttribute('viewBox',
+        `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+    } else {
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    }
+  }
+  svg.removeAttribute('width');
+  svg.removeAttribute('height');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  // PlantUML и GraphViewer прописывают размеры инлайновым стилем,
+  // а он сильнее CSS — иначе схема рисуется в натуральную величину
+  // и вылезает за пределы панели
+  ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height']
+    .forEach((prop) => svg.style.removeProperty(prop));
+  svg.style.setProperty('width', '100%', 'important');
+  svg.style.setProperty('height', '100%', 'important');
+
+  const home = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  let box = home.slice();
+
+  // Запоминаем исходную рамку: выгружать надо схему целиком, а не то,
+  // что видно после зума
+  svg.setAttribute('data-home', home.join(' '));
+
+  const apply = () => svg.setAttribute('viewBox', box.join(' '));
+
+  const zoomAt = (factor, originX, originY) => {
+    const [x, y, w, h] = box;
+    const nw = w * factor;
+    const nh = h * factor;
+    // Точка под курсором остаётся на месте
+    box = [x + (w - nw) * originX, y + (h - nh) * originY, nw, nh];
+    apply();
+  };
+
+  // Слушаем всю панель, а не только сам <svg>: иначе колесо над пустым
+  // полем вокруг схемы уходит в масштабирование страницы браузером
+  const surface = svg.closest('.pane-body') || svg;
+
+  surface.addEventListener('wheel', (e) => {
+    // Перехватываем и Ctrl+колесо — это зум страницы в Firefox и Chrome
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    zoomAt(
+      e.deltaY > 0 ? 1.15 : 1 / 1.15,
+      (e.clientX - rect.left) / rect.width,
+      (e.clientY - rect.top) / rect.height
+    );
+  }, { passive: false });
+
+  let dragging = null;
+  surface.addEventListener('pointerdown', (e) => {
+    dragging = { x: e.clientX, y: e.clientY, box: box.slice() };
+    svg.classList.add('panning');
+    surface.setPointerCapture(e.pointerId);
+  });
+  surface.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = svg.getBoundingClientRect();
+    box = [
+      dragging.box[0] - (e.clientX - dragging.x) * dragging.box[2] / rect.width,
+      dragging.box[1] - (e.clientY - dragging.y) * dragging.box[3] / rect.height,
+      dragging.box[2],
+      dragging.box[3]
+    ];
+    apply();
+  });
+  const endDrag = () => { dragging = null; svg.classList.remove('panning'); };
+  surface.addEventListener('pointerup', endDrag);
+  surface.addEventListener('pointercancel', endDrag);
+
+  svg.zoomControls = {
+    in: () => zoomAt(1 / 1.25, 0.5, 0.5),
+    out: () => zoomAt(1.25, 0.5, 0.5),
+    fit: () => { box = home.slice(); apply(); }
+  };
+}
+
+document.querySelectorAll('[data-zoom]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const svg = $(btn.dataset.pane).querySelector('svg');
+    if (svg && svg.zoomControls) svg.zoomControls[btn.dataset.zoom]();
+  });
+});
+
+/* ---------- Опрос состояния: агент правит YAML — панель обновляется ---------- */
+
+async function poll() {
+  try {
+    const res = await fetch('/api/state');
+    const state = await res.json();
+
+    $('source-name').textContent = state.source_name || '';
+    $('yaml-name').textContent = state.yaml_name || '';
+
+    if (state.error) {
+      setStatus(state.error, true);
+      showMessage($('yaml-body'), state.error, true);
+      version = state.version;
+      return;
+    }
+
+    if (!sourceLoaded) await loadSource();
+
+    const ids = state.contexts.map((c) => c.id);
+    const optionsChanged =
+      ids.length !== contextsEl.options.length ||
+      ids.some((id, i) => contextsEl.options[i].value !== id);
+
+    if (optionsChanged) {
+      contextsEl.innerHTML = '';
+      state.contexts.forEach((ctx) => {
+        const option = document.createElement('option');
+        option.value = ctx.id;
+        option.textContent = ctx.title;
+        contextsEl.appendChild(option);
+      });
+      if (!ids.includes(currentContext)) currentContext = ids[0] || null;
+      contextsEl.value = currentContext || '';
+    }
+
+    if (state.version !== version) {
+      version = state.version;
+      await loadContext(currentContext);
+      setStatus('обновлено ' + new Date().toLocaleTimeString('ru-RU'));
+    }
+  } catch (e) {
+    setStatus('нет связи с сервером превью', true);
+  }
+}
+
+document.querySelectorAll('[data-save]').forEach((btn) => {
+  btn.addEventListener('click', () => saveGenerated(btn.dataset.save));
+});
+
+$('pages').addEventListener('change', (event) => {
+  currentPage = Number(event.target.value) || 0;
+  // Перерисовываем ту же схему, но другую её страницу
+  sourceLoaded = false;
+  loadSource();
+});
+
+$('save-source').addEventListener('click', () => {
+  const svg = $('source-body').querySelector('svg');
+  if (svg) downloadSvg(svg, ($('source-name').textContent || 'schema') + '.svg');
+});
+
+contextsEl.addEventListener('change', () => {
+  currentContext = contextsEl.value;
+  loadContext(currentContext);
+});
+
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>

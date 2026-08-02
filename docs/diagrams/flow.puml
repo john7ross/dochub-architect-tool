@@ -1,0 +1,100 @@
+@startuml flow
+' ASCII labels on purpose - see component.puml
+title Transferring a schema into the architecture repository
+
+skinparam responseMessageBelowArrow true
+
+actor Architect as user
+participant "MCP client" as agent
+participant "MCP server" as mcp
+participant "Preview" as preview
+database "Architecture\nrepository" as repo
+participant GitLab as gitlab
+
+== Preparation ==
+
+user -> agent: Transfer this schema into DocHub
+agent -> mcp: dochub_workspace()
+mcp --> agent: settings, where each came from, automode
+
+alt Something is missing in .env
+  agent -> user: Asks only for what is missing
+  user --> agent: names it once
+  agent -> mcp: dochub_workspace(save=true)
+end
+
+agent -> mcp: dochub_repo_sync(update=true, branch)
+mcp -> repo: ls-remote, fetch, fast-forward, work branch
+mcp --> agent: reachable, behind, uncommitted, branch
+
+alt Repository unreachable
+  agent -> user: The reason, quoted: VPN, proxy or rights
+end
+
+agent -> mcp: dochub_lessons()
+mcp --> agent: rules confirmed on earlier schemas
+agent -> mcp: dochub_brief(schema, query, project_root)
+mcp --> agent: facts and only the questions nothing answers
+
+alt Diagram is a logical one (sequence, activity)
+  mcp --> agent: rejected with an explanation
+  agent -> user: A component set cannot be derived from this
+end
+
+alt automode is off
+  agent -> user: The brief - every question with its source
+  user --> agent: answers in one message
+else automode is on
+  agent -> agent: applies the defaults from the brief
+end
+
+== Reconciliation with the code (only when sources are given) ==
+
+agent -> mcp: dochub_reconcile_with_code(schema, project)
+mcp --> agent: discrepancies with file and line
+agent -> user: Shows the list, asks about each doubtful item
+user --> agent: decides what goes in and what stays out
+
+== Building ==
+
+agent -> mcp: dochub_search_components(query)
+mcp --> agent: existing components to reuse
+agent -> mcp: dochub_locate_owner(ids)
+mcp --> agent: which subdomain owns them
+agent -> mcp: dochub_draft_from_schema(own_root, ...)
+mcp --> agent: draft YAML, foreign components listed separately
+
+== Agreement loop ==
+
+agent -> mcp: dochub_preview(schema, yaml)
+mcp -> preview: start
+preview --> agent: address
+agent -> user: Open the preview and tell me what to change
+
+loop until the user confirms
+  user -> preview: reviews the split screen
+  user --> agent: comments
+  agent -> repo: edits the YAML
+  preview -> preview: picks up the change automatically
+end
+
+== Publication ==
+
+agent -> mcp: dochub_check_registration(repo, yaml)
+mcp --> agent: what is missing in shared and foreign files
+agent -> mcp: dochub_register_schema(plan, apply=false)
+mcp --> agent: plan, foreign files marked
+agent -> user: These foreign subdomains will be touched - agreed?
+user --> agent: confirms
+agent -> mcp: dochub_register_schema(apply=true)
+agent -> mcp: dochub_publish(schema_name, confirmed=true)
+note right: In automode the confirmation is not asked for,\nand the answer says so
+mcp -> repo: branch, commit by the template from the settings
+mcp -> gitlab: push, merge request with assignee and reviewers
+gitlab --> user: merge request link
+agent -> user: Who approves, and whether the branch is removed - decided by a human
+
+agent -> mcp: dochub_record_lessons(confirmed=true)
+note right: What was learned is stored\nand reused on the next schema
+
+@enduml

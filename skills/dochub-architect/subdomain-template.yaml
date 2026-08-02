@@ -1,0 +1,65 @@
+# Шаблон yaml поддомена для architectural-repository (DocHub)
+# Скопируй в architecture/domain/<Домен>/<ОК>/<поддомен>.yaml
+# Замени плейсхолдеры в угловых скобках
+
+aspects:
+
+  # <Домен>.<ОграничКонтекст>.<поддомен>.<функционал1>:
+  #   title: <Название бизнес-функции>
+  #   location: Domain/<Домен>/<ОК>/<поддомен>/<функционал1>
+
+  <Домен>.<ОграничКонтекст>.<поддомен>.<функционал2>:
+    title: <Название бизнес-функции>
+    location: Domain/<Домен>/<ОК>/<поддомен>/<функционал2>
+
+
+components:
+
+  dotnet.<serviceName>:
+    title: <номер> <ServiceName>
+    entity: component
+    server: dotnet.<серверПриложений>
+    container: <service-name>
+    team: <команда>
+    prodact: <владелец>
+    aspects:
+      - <Домен>.<ОК>.<поддомен>.<функционал2>
+    components:
+      - dotnet.<serviceName>.<функционал2>
+      - dotnet.<serviceName>.<dbContext>
+
+  dotnet.<serviceName>.<функционал2>:
+    title: <ClassName> — <описание>
+    entity: component
+    aspects:
+      - <Домен>.<ОК>.<поддомен>.<функционал2>
+
+  postgresql.<поддомен>.<databaseName>:
+    title: <имя БД>
+    entity: database
+    server: <хост>
+    base: <имя базы>
+    aspects:
+      - <Домен>.<ОК>.<поддомен>.<функционал2>
+
+
+contexts:
+
+  <Домен>.<ОК>.<поддомен>.<процесс>:
+    title: <Сценарий> L2-L3
+    location: Domain/<Домен>/<ОК>/<поддомен>/<процесс> L2-L3
+    extra-links: false
+    config:
+      renderCore: elk
+    components:
+      - dotnet.<serviceName>.<функционал2>
+      - dotnet.<serviceName>.<dbContext>
+      - postgresql.<поддомен>.<databaseName>
+      # - dotnet.catalogApi.someMethodGet
+      # - externalServices.somePartner
+    uml:
+      $before: |
+        skinparam nodesep 16
+        skinparam ranksep 22
+      $after: |
+        dotnet.<serviceName>.<функционал2> --> postgresql.<поддомен>.<databaseName>

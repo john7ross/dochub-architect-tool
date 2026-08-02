@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+ENV/
+env/
+
+# Тесты и инструменты
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Среда разработки
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+
+# Операционная система
+.DS_Store
+Thumbs.db
+
+# Выполнение
+logs/
+output/
+temp/
+cache/
+*.log
+*.tmp
+
+# Настройки установки: свои пути и свой токен на каждой машине.
+# Образец лежит в .env.example
+.env
+dochub-workspace.yaml
+
+# Накопленные знания: у каждой установки свои
+knowledge/lessons.yaml
+
+# Рабочие данные пользователя: доменная модель, схемы сервисов,
+# копии архитектурного репозитория
+schemas/
+repository/
+ddd.drawio
+
+# Плагины DocHub: чужие артефакты, распространяются отдельно
+plugins/
+
+# Крупные вендоренные бинарники: ставятся отдельно, см. README
+lib/*.jar
+lib/elk/
+vendor/viewer-static.min.js
+
+# Собранные архивы: артефакт релиза, а не исходник
+dist/
+
+# Документация
+release_v0.3.0.md

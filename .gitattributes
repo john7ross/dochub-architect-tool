@@ -1,0 +1,23 @@
+# Без этого файла содержимое зависит от настройки core.autocrlf на машине
+# разработчика: у одного в репозиторий уедет LF, у другого CRLF.
+
+# По умолчанию git сам решает, текст это или двоичное, и хранит текст с LF
+* text=auto
+
+# Код и документация — всегда LF, их читают и на Linux
+*.py    text eol=lf
+*.md    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.puml  text eol=lf
+*.ini   text eol=lf
+*.txt   text eol=lf
+*.html  text eol=lf
+
+# Схемы отдаём байт в байт: их пишет draw.io, а не мы
+*.drawio  -text
+
+# Двоичное не трогать никогда
+*.png  binary
+*.jpg  binary
+*.jar  binary

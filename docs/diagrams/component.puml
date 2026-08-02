@@ -1,0 +1,67 @@
+@startuml component
+' Labels are kept ASCII on purpose: PlantUML charset issues garble Cyrillic
+' in some environments, and this diagram must render anywhere.
+!include <C4/C4_Component>
+
+title DocHub Architect Tool - component view
+
+Person(user, "Architect", "Describes a service in the architecture repository")
+System_Ext(agent, "MCP client", "Any agent or IDE speaking the MCP protocol")
+
+System_Boundary(tool, "DocHub Architect Tool") {
+  Component(mcp, "MCP server", "Python, FastMCP, stdio", "20 tools: sync, brief, parse, search, validate, render, register, publish")
+
+  Component(settings, "Settings", "Python, .env", "Paths, GitLab defaults, automode; environment over .env over saved paths")
+  Component(workspace, "Workspace", "Python, YAML", "Paths saved by the agent in earlier sessions")
+
+  Component(parsers, "Parsers", "Python", "DrawIO with C4 attributes, PlantUML, DDD schema; geometric nesting; compressed files")
+  Component(kind, "Diagram classifier", "Python", "Rejects sequence, activity and other logical diagrams")
+  Component(transformer, "Transformer", "Python", "Draft YAML: ids from c4Name, L2/L3 levels, ownership split")
+  Component(reconcile, "Reconciler", "Python", "Compares the schema with service source code")
+
+  Component(manifest, "Manifest loader", "Python", "Expands imports of the whole repository")
+  Component(native, "DocHub renderer", "Python, JSONata", "Runs the vendored DocHub metamodel")
+  Component(registrar, "Registrar", "Python, ruamel.yaml", "Writes into shared and foreign subdomain files")
+  Component(publisher, "Publisher", "Python, git CLI, httpx", "Repository state and work branch; branch, commit, push, merge request")
+  Component(knowledge, "Knowledge store", "Python, YAML", "Rules confirmed on previous schemas")
+
+  Component(preview, "Preview server", "Python, HTTP", "Split screen: original vs generated, live reload")
+
+  Component(export, "DrawIO export", "Python", "Writes an image via Draw.io Desktop when SVG is not enough")
+}
+
+Container_Ext(viewer, "drawio viewer", "JavaScript, vendored", "Renders the original diagram in the browser")
+Container_Ext(plantuml, "PlantUML", "Java, bundled jar", "Renders DocHub contexts, ELK layout")
+System_Ext(repo, "Architecture repository", "Git, DocHub YAML")
+System_Ext(code, "Service repository", "Source code of the service")
+System_Ext(gitlab, "GitLab", "Merge requests")
+
+Rel(user, agent, "Asks to transfer a schema")
+Rel(agent, mcp, "Calls tools", "MCP over stdio")
+Rel(user, preview, "Reviews and comments", "HTTP, browser")
+
+Rel(mcp, parsers, "Parses schemas")
+Rel(mcp, kind, "Checks the diagram type")
+Rel(mcp, transformer, "Builds the draft")
+Rel(mcp, reconcile, "Finds discrepancies")
+Rel(mcp, manifest, "Loads the manifest")
+Rel(mcp, native, "Renders contexts")
+Rel(mcp, registrar, "Applies registration")
+Rel(mcp, publisher, "Publishes")
+Rel(mcp, knowledge, "Reads and records rules")
+Rel(mcp, preview, "Starts the preview")
+Rel(mcp, settings, "Reads the configuration")
+Rel(settings, workspace, "Falls back to saved paths")
+Rel(publisher, repo, "Fetch, branch, commit, push")
+Rel(mcp, export, "Exports an image")
+
+Rel(preview, viewer, "Serves the vendored engine")
+Rel(preview, plantuml, "Renders the generated context")
+Rel(native, plantuml, "PlantUML source")
+Rel(manifest, repo, "Reads YAML files")
+Rel(registrar, repo, "Writes YAML files")
+Rel(reconcile, code, "Scans declarations")
+Rel(publisher, repo, "git")
+Rel(publisher, gitlab, "Creates merge request", "HTTPS")
+
+@enduml
