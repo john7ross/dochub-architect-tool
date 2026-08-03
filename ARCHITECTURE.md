@@ -54,6 +54,12 @@ answers into the questions for the user.
   value remembers where it came from, because "the wrong repository" is
   otherwise hard to diagnose. `.env` is parsed here: a library for twenty lines
   would be one more dependency for nothing.
+- `ddd_source.py` — the domain schema when it is given by a link. Downloaded
+  once, during preparation (`dochub_repo_sync`), and cached; everything after
+  that reads the downloaded copy and never reaches for the network — in a
+  closed network there may be none. A failed refresh keeps the previous copy
+  and says so. A Google Drive view link is recognised as a download address,
+  and a sign-in page arriving instead of a file as closed access.
 - `workspace.py` — paths saved by the agent in earlier sessions. Kept as the
   lowest-priority source, so an installation configured through the tool keeps
   working. Found via `DOCHUB_WORKSPACE`, then `dochub-workspace.yaml` beside the

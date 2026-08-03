@@ -120,3 +120,41 @@ System_Boundary(sys, "My System") {
 
         assert result.is_c4 is True
         assert len(result.components) >= 2
+
+
+class TestRealWorldMacros:
+    """
+    Как макросы C4 пишут на настоящих схемах.
+
+    Обязательными аргументами дело не ограничивается: дальше идут именованные
+    ($link, $tags, $sprite), а описание бывает пустым. На таких файлах разбор
+    возвращал ноль элементов, и инструмент просил выбрать корень из пустого
+    списка — 12 схем из набора компании.
+    """
+
+    def test_named_arguments_after_description(self, tmp_path):
+        path = tmp_path / 'link.puml'
+        path.write_text("""@startuml
+System_Boundary(b, "WEB") {
+  Component(site, "Sayt", "React, JS", "Vidzhet", $link="")
+}
+@enduml
+""", encoding='utf-8')
+
+        result = PlantUMLParser(str(path)).parse()
+
+        assert [c.title for c in result.components] == ['Sayt']
+        assert result.components[0].technology == 'React, JS'
+
+    def test_empty_description(self, tmp_path):
+        path = tmp_path / 'empty.puml'
+        path.write_text("""@startuml
+Boundary(p, "Prodazha") {
+  Container(p1, "Zagotovka", "Process", "")
+}
+@enduml
+""", encoding='utf-8')
+
+        result = PlantUMLParser(str(path)).parse()
+
+        assert [c.title for c in result.components] == ['Zagotovka']

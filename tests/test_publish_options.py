@@ -75,6 +75,20 @@ class TestConfirmation:
         assert answer['committed'] is True
         assert answer['automode'] is False
 
+    def test_commit_into_target_branch_refused(self, repo):
+        """
+        Схема входит в репозиторий через merge request, а не прямым коммитом.
+
+        Ветка назначения обычно защищена, и push отвергается уже после того,
+        как работа сделана; а где не защищена — правка минует ревью.
+        """
+        answer = publish(repo_path=str(repo), branch='main',
+                         message='проба', confirmed=True, push=False)
+
+        assert 'error' in answer
+        assert 'merge request' in answer['error']
+        assert 'main' in answer['error']
+
     def test_automode_publishes_without_confirmation(self, repo, isolated):
         """Режим для тех, кто не разбирается: агент доводит работу сам."""
         (isolated / '.env').write_text('DOCHUB_AUTOMODE=true\n', encoding='utf-8')

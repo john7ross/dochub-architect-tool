@@ -103,6 +103,69 @@ class TestStubExternalIncludes:
         assert 'UNKNOWN_PATH' in _undefined_vars(body)
 
 
+class TestUnregisteredSchemaInPreview:
+    """
+    Схему показывают пользователю до того, как она подключена к репозиторию.
+
+    Превью собирает манифест репозитория, где нового файла ещё нет: без
+    подмешивания редактируемого файла правая панель отвечала «контекст не
+    найден» весь этап показа и правок по замечаниям — то есть всегда.
+    """
+
+    @pytest.fixture
+    def repo(self, tmp_path):
+        """Репозиторий с одним чужим компонентом и не подключённым файлом."""
+        architecture = tmp_path / 'architecture'
+        (architecture / 'domain' / 'sales').mkdir(parents=True)
+
+        (architecture / 'dochub.yaml').write_text("""imports: []
+components:
+  dotnet.foreignApi:
+    title: Foreign API
+    entity: component
+""", encoding='utf-8')
+
+        own = architecture / 'domain' / 'sales' / 'OrderService.yaml'
+        own.write_text("""components:
+  dotnet.orderServiceApi:
+    title: OrderService
+    entity: component
+contexts:
+  sales.orders.orderFlow:
+    title: orderFlow
+    components:
+    - dotnet.orderServiceApi
+    - dotnet.foreignApi
+""", encoding='utf-8')
+        return own
+
+    def test_own_context_visible_before_registration(self, repo):
+        manifest = PreviewRenderer()._load_manifest(repo)
+
+        assert 'sales.orders.orderFlow' in manifest['contexts']
+
+    def test_foreign_components_still_resolve(self, repo):
+        """Чужой компонент из репозитория обязан остаться разрешимым."""
+        manifest = PreviewRenderer()._load_manifest(repo)
+
+        assert 'dotnet.foreignApi' in manifest['components']
+        assert 'dotnet.orderServiceApi' in manifest['components']
+
+    def test_edit_reaches_the_manifest(self, repo):
+        """Правка по замечанию пользователя видна без перезапуска превью."""
+        renderer = PreviewRenderer()
+        renderer._load_manifest(repo)
+
+        repo.write_text(
+            repo.read_text(encoding='utf-8').replace(
+                'title: OrderService', 'title: Сервис заказов'),
+            encoding='utf-8')
+
+        manifest = renderer._load_manifest(repo)
+
+        assert manifest['components']['dotnet.orderServiceApi']['title'] ==             'Сервис заказов'
+
+
 class TestGeometry:
     """Восстановление вложенности по координатам."""
 
@@ -329,3 +392,61 @@ class TestBundledJava:
 
         command = PreviewRenderer()._java_command()
         assert command[0] == r'X:\jre\java.exe'
+
+
+BROKEN_YAML = 'contexts:' + chr(10) + '  broken: [' + chr(10)
+
+
+class TestPreviewSurvivesBrokenYaml:
+    """
+    Опечатка в YAML не должна гасить оригинал схемы.
+
+    Пользователь сверяется как раз с ним: когда правка оказалась неудачной,
+    картинка нужна больше обычного. Сообщение об ошибке при этом должно
+    называть файл и говорить, что проверить, а не быть дампом разборщика.
+    """
+
+    @staticmethod
+    def _server(tmp_path, body: str):
+        from app.preview.server import PreviewServer
+
+        schema = Path(__file__).parent / 'fixtures' / 'TwoServices.drawio'
+        broken = tmp_path / 'bad.yaml'
+        broken.write_text(body, encoding='utf-8')
+        return PreviewServer(schema, broken)
+
+    def test_error_names_the_file_and_what_to_check(self, tmp_path):
+        state = self._server(tmp_path, BROKEN_YAML).state()
+
+        assert 'bad.yaml' in state['error']
+        assert 'отступы' in state['error']
+
+    def test_source_is_served_despite_the_error(self, tmp_path):
+        """Левая панель берёт схему отдельным запросом и от YAML не зависит."""
+        server = self._server(tmp_path, BROKEN_YAML)
+
+        described = server.renderer.describe_source(server.source_path)
+
+        assert described['pages'] == ['Заказы', 'Оплаты']
+        assert described['data']
+
+    def test_page_loads_source_before_reporting_the_error(self):
+        """
+        Страница выходила из опроса на ошибке раньше загрузки оригинала.
+
+        Проверяется порядок в самом скрипте: живой прогон подтверждает
+        результат, а этот тест ловит возврат порядка обратно.
+        """
+        page = (Path(__file__).parent.parent / 'app' / 'preview' / 'static'
+                / 'index.html').read_text(encoding='utf-8')
+        poll = page[page.index('async function poll()'):]
+
+        assert poll.index('loadSource()') < poll.index('if (state.error)')
+
+    def test_toolbar_wraps_instead_of_overflowing(self):
+        """В узком окне кнопки выгрузки уезжали за край экрана."""
+        page = (Path(__file__).parent.parent / 'app' / 'preview' / 'static'
+                / 'index.html').read_text(encoding='utf-8')
+        head = page[page.index('.pane-head {'):page.index('.pane-body {')]
+
+        assert 'flex-wrap: wrap' in head

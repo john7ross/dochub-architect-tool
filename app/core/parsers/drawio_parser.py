@@ -6,6 +6,7 @@
 """
 
 import base64
+import html
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -20,6 +21,34 @@ from app.core.parsers.base_parser import (
     ParseResult
 )
 from app.utils.logger import get_logger
+
+
+#: Разделители текста внутри подписи: без них соседние слова слипаются
+_BREAKS = re.compile(r'<\s*(br|/div|/p|/li)\s*/?>', re.I)
+#: Любой другой тег разметки
+_TAGS = re.compile(r'<[^>]+>')
+
+
+def clean_label(text: Optional[str]) -> str:
+    """
+    Привести подпись DrawIO к обычному тексту.
+
+    В DrawIO подпись — это HTML: переносы строк, <b>, <font>, &nbsp;. Из неё
+    строятся и заголовок, и идентификатор DocHub, поэтому разметка попадала в
+    оба: идентификаторы вида `fontStyleFontSize11px...`, а перенос строки в
+    заголовке разрывал YAML, который потом никто не мог прочитать.
+
+    Args:
+        text: Подпись как она лежит в файле
+
+    Returns:
+        Однострочный текст без разметки
+    """
+    if not text:
+        return ''
+
+    without_markup = _TAGS.sub('', _BREAKS.sub(' ', text))
+    return ' '.join(html.unescape(without_markup).split())
 
 
 class DrawIOParser(BaseParser):
@@ -286,13 +315,15 @@ class DrawIOParser(BaseParser):
             return None
 
         # Извлекаем C4 атрибуты
-        c4_name = cell.attrib.get('c4Name')
+        c4_name = clean_label(cell.attrib.get('c4Name'))
         c4_type = cell.attrib.get('c4Type')
-        c4_technology = cell.attrib.get('c4Technology')
-        c4_description = cell.attrib.get('c4Description')
+        c4_technology = clean_label(cell.attrib.get('c4Technology'))
+        c4_description = clean_label(cell.attrib.get('c4Description'))
 
         # Если нет имени, пытаемся взять из value (mxCell) или label (object)
-        title = c4_name or cell.attrib.get('value') or cell.attrib.get('label', '')
+        title = c4_name or clean_label(
+            cell.attrib.get('value') or cell.attrib.get('label', '')
+        )
 
         # Определяем тип компонента
         comp_type = self._map_c4_type(c4_type)
@@ -326,7 +357,7 @@ class DrawIOParser(BaseParser):
             return None
 
         # Извлекаем label
-        label = cell.attrib.get('value', '')
+        label = clean_label(cell.attrib.get('value', ''))
 
         # Определяем направление по стилю
         style = cell.attrib.get('style', '')

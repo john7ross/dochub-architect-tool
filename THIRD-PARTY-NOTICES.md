@@ -3,6 +3,10 @@
 DocHub Architect Tool itself is MIT — see [LICENSE](LICENSE). It redistributes
 the components below, each under its own licence.
 
+> This file is English-only on purpose: it quotes licence names and upstream
+> terms, and a translation of a legal notice would be a second, unofficial
+> text. Остальная документация проекта — на двух языках.
+
 ## DocHub metamodel
 
 **What ships:** `vendor/dochub/base.yaml`, `vendor/dochub/plantuml.yaml`,

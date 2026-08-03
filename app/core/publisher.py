@@ -179,7 +179,11 @@ class Publisher:
         """
         try:
             remote_url = self.remote_url()
-        except PublishError:
+        except PublishError as e:
+            # Причину терять нельзя: «нет origin» и «git не найден» лечатся
+            # совершенно по-разному, а выглядели одинаково
+            if 'git не найден' in str(e):
+                raise
             raise PublishError(
                 f"У репозитория {self.repo_path} нет удалённого origin. "
                 "Схему можно собрать и локально, но опубликовать — нет"
@@ -301,6 +305,9 @@ class Publisher:
         if self._git('branch', '--list', branch).strip():
             self._git('checkout', branch)
             report.branch_switched = branch
+            # Отчёт читают как «где мы сейчас» и передают дальше в публикацию:
+            # оставить здесь ветку до переключения — значит закоммитить в неё
+            report.current_branch = branch
             return
 
         base = f'origin/{target_branch}' if report.fetched else 'HEAD'
@@ -316,6 +323,7 @@ class Publisher:
             )
 
         report.branch_created = branch
+        report.current_branch = branch
 
     def publish(
         self,
@@ -357,6 +365,17 @@ class Publisher:
             raise PublishError(
                 f"Недопустимое имя ветки: {branch!r}. "
                 "Разрешены латиница, цифры, точка, дефис, подчёркивание, слэш"
+            )
+
+        # Схема попадает в репозиторий через merge request, а не прямым
+        # коммитом в ветку назначения: она обычно защищена, и push отвергнут
+        # уже после того, как работа сделана
+        if branch == target_branch:
+            raise PublishError(
+                f"Ветка публикации совпадает с веткой назначения ({branch}). "
+                "Схема вносится через merge request из рабочей ветки — "
+                "заведите её dochub_repo_sync(branch=...) и передайте сюда "
+                "current_branch из его ответа"
             )
 
         result = PublishResult(branch=branch, committed=False, pushed=False)

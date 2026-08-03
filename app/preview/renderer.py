@@ -279,7 +279,19 @@ class PreviewRenderer:
             self._manifest = ManifestLoader().load(root)
             self._manifest_key = key
 
-        return self._manifest or {}
+        # Схему показывают до того, как она подключена к дереву репозитория:
+        # в манифесте её контекста ещё нет, и правая панель отвечала бы
+        # «контекст не найден» весь этап показа и правок по замечаниям
+        own = yaml.safe_load(yaml_path.read_text(encoding='utf-8')) or {}
+        merged = dict(self._manifest or {})
+        for section, values in own.items():
+            current = merged.get(section)
+            if isinstance(values, dict) and isinstance(current, dict):
+                merged[section] = {**current, **values}
+            else:
+                merged[section] = values
+
+        return merged
 
     def _find_repo_root(self, yaml_path: Path) -> Optional[Path]:
         """

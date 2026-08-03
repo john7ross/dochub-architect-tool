@@ -258,14 +258,14 @@ class TestDraftShape:
 class TestMultiPage:
     """Файл DrawIO часто содержит несколько независимых диаграмм."""
 
-    MULTI = Path(__file__).parent.parent / 'schemas' / 'drawio' / 'бп схема(1).drawio'
+    # Фикстура едет вместе с проектом: многостраничность — не редкость, а
+    # обычный вид файла DrawIO, и проверять её надо в любой установке
+    MULTI = Path(__file__).parent / 'fixtures' / 'TwoServices.drawio'
 
-    @pytest.mark.skipif(not MULTI.exists(), reason='нужен многостраничный файл')
     def test_pages_listed(self):
         result = DrawIOParser(str(self.MULTI)).parse()
         assert len(result.pages) > 1
 
-    @pytest.mark.skipif(not MULTI.exists(), reason='нужен многостраничный файл')
     def test_elements_carry_page(self):
         """Без признака страницы элементы разных диаграмм сливаются."""
         result = DrawIOParser(str(self.MULTI)).parse()
@@ -274,7 +274,6 @@ class TestMultiPage:
         ) or {c.page for c in result.components} <= set(range(len(result.pages)))
         assert all(c.page_name for c in result.components)
 
-    @pytest.mark.skipif(not MULTI.exists(), reason='нужен многостраничный файл')
     def test_single_page_slice(self):
         """Схема строится по одной странице, а не по всему файлу сразу."""
         result = DrawIOParser(str(self.MULTI)).parse()

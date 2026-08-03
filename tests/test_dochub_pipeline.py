@@ -65,8 +65,12 @@ needs_repo = pytest.mark.skipif(
 )
 
 needs_fixtures = pytest.mark.skipif(
-    not (MANIFEST.exists() and SUBDOMAIN.exists()),
-    reason='нужны DOCHUB_TEST_SUBDOMAIN, DOCHUB_TEST_CONTEXT и остальные пути'
+    # Проверяются все пути, а не два из восьми: при частичной настройке тест
+    # падал по несуществующему пути-заглушке вместо честного пропуска
+    not (MANIFEST.exists() and SUBDOMAIN.exists()
+         and (REPO / OWNER_FILE).exists()),
+    reason='нужны DOCHUB_TEST_SUBDOMAIN, DOCHUB_TEST_CONTEXT, '
+           'DOCHUB_TEST_OWNER_FILE и остальные пути'
 )
 
 

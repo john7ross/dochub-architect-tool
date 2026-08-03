@@ -71,7 +71,7 @@ copy .env.example .env
 
 ```ini
 DOCHUB_REPO_ROOT=C:/repos/architectural-repository
-DOCHUB_DDD_PATH=C:/repos/architectural-repository/ddd.drawio
+DOCHUB_DDD_PATH=C:/repos/architectural-repository/ddd.drawio   # или ссылка
 GITLAB_TOKEN=                       # нужен только для merge request
 DOCHUB_REMOTE_PROTOCOL=https        # или ssh — чего ждёт ваш origin
 DOCHUB_TARGET_BRANCH=main

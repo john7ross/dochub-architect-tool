@@ -13,6 +13,41 @@ from app.core.parsers.base_parser import Component, Relation, ParseResult
 from app.utils.logger import get_logger
 
 
+#: Кириллица -> латиница. Без неё компонент с русским названием получал
+#: пустой идентификатор и молча выпадал из черновика: на схемах компании
+#: по-русски названы люди, методы и хранимые процедуры
+_TRANSLIT = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'c', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+}
+
+CYRILLIC = re.compile(r'[а-яёА-ЯЁ]')
+
+
+def transliterate(name: str) -> str:
+    """
+    Заменить кириллицу латиницей, сохранив границы слов.
+
+    Args:
+        name: Название как оно написано на схеме
+
+    Returns:
+        Название латиницей
+    """
+    out = []
+    for char in name:
+        lower = char.lower()
+        if lower in _TRANSLIT:
+            latin = _TRANSLIT[lower]
+            out.append(latin.capitalize() if char.isupper() and latin else latin)
+        else:
+            out.append(char)
+    return ''.join(out)
+
+
 def slugify(name: Optional[str]) -> str:
     """
     Привести название с диаграммы к camelCase-идентификатору DocHub.
@@ -20,6 +55,7 @@ def slugify(name: Optional[str]) -> str:
     "OrderHandlerService"      -> "orderHandlerService"
     "Partner API Endpoints"    -> "partnerApiEndpoints"
     "dbo.Partner_Edit_Get"     -> "dboPartnerEditGet"
+    "ХП отправки события"      -> "hpOtpravkiSobytiya"
 
     Args:
         name: Название узла (c4Name)
@@ -30,7 +66,7 @@ def slugify(name: Optional[str]) -> str:
     if not name:
         return ''
 
-    words = [w for w in re.split(r'[^0-9A-Za-z]+', name) if w]
+    words = [w for w in re.split(r'[^0-9A-Za-z]+', transliterate(name)) if w]
     if not words:
         return ''
 
@@ -265,7 +301,10 @@ class Transformer:
                 owner.id,
                 self._extract_technology(owner.title)
             )
-            id_map[component.id] = f"{technology}.{slugify(owner.title)}.{own_slug}"
+            # Рамка без пригодного имени (пустая подпись, одна разметка) дала
+            # бы идентификатор с дырой — `mssql..orderItem`
+            parts = [technology, slugify(owner.title), own_slug]
+            id_map[component.id] = '.'.join(part for part in parts if part)
 
         return id_map
 

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Две независимые диаграммы в одном файле: так в DrawIO хранят разные
+     задачи. Слитые в один контекст, они дают схему, которой нет ни на одной
+     странице, поэтому многостраничность проверяется отдельно. -->
+<mxfile host="app.diagrams.net">
+  <diagram id="page-orders" name="Заказы">
+    <mxGraphModel dx="800" dy="600" grid="0" page="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <object label="OrderService.Api" c4Name="OrderService.Api" c4Type="System_Boundary" id="o-frame">
+          <mxCell style="rounded=0;dashed=1" vertex="1" parent="1">
+            <mxGeometry x="40" y="40" width="480" height="320" as="geometry"/>
+          </mxCell>
+        </object>
+        <object label="OrderController" c4Name="OrderController" c4Type="container"
+                c4Technology="dotnet" c4Description="Приём заказа" id="o-ctrl">
+          <mxCell style="rounded=1" vertex="1" parent="1">
+            <mxGeometry x="80" y="100" width="180" height="70" as="geometry"/>
+          </mxCell>
+        </object>
+        <object label="OrderDbContext" c4Name="OrderDbContext" c4Type="container"
+                c4Technology="dotnet" c4Description="Доступ к данным" id="o-db">
+          <mxCell style="rounded=1" vertex="1" parent="1">
+            <mxGeometry x="300" y="100" width="180" height="70" as="geometry"/>
+          </mxCell>
+        </object>
+        <mxCell id="o-rel" value="сохраняет" style="endArrow=classic" edge="1"
+                parent="1" source="o-ctrl" target="o-db">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-payments" name="Оплаты">
+    <mxGraphModel dx="800" dy="600" grid="0" page="1">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <object label="PaymentService.Api" c4Name="PaymentService.Api" c4Type="System_Boundary" id="p-frame">
+          <mxCell style="rounded=0;dashed=1" vertex="1" parent="1">
+            <mxGeometry x="40" y="40" width="480" height="320" as="geometry"/>
+          </mxCell>
+        </object>
+        <object label="PaymentController" c4Name="PaymentController" c4Type="container"
+                c4Technology="dotnet" c4Description="Приём оплаты" id="p-ctrl">
+          <mxCell style="rounded=1" vertex="1" parent="1">
+            <mxGeometry x="80" y="100" width="180" height="70" as="geometry"/>
+          </mxCell>
+        </object>
+        <object label="PaymentWorker" c4Name="PaymentWorker" c4Type="container"
+                c4Technology="dotnet" c4Description="Фоновая обработка" id="p-worker">
+          <mxCell style="rounded=1" vertex="1" parent="1">
+            <mxGeometry x="300" y="100" width="180" height="70" as="geometry"/>
+          </mxCell>
+        </object>
+        <object label="PaymentQueue" c4Name="PaymentQueue" c4Type="container"
+                c4Technology="rabbitmq" c4Description="Очередь платежей" id="p-queue">
+          <mxCell style="rounded=1" vertex="1" parent="1">
+            <mxGeometry x="180" y="220" width="180" height="70" as="geometry"/>
+          </mxCell>
+        </object>
+        <mxCell id="p-rel1" value="публикует" style="endArrow=classic" edge="1"
+                parent="1" source="p-ctrl" target="p-queue">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-rel2" value="читает" style="endArrow=classic" edge="1"
+                parent="1" source="p-worker" target="p-queue">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

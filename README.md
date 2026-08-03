@@ -72,7 +72,7 @@ the rest has working defaults:
 
 ```ini
 DOCHUB_REPO_ROOT=C:/repos/architectural-repository
-DOCHUB_DDD_PATH=C:/repos/architectural-repository/ddd.drawio
+DOCHUB_DDD_PATH=C:/repos/architectural-repository/ddd.drawio   # или ссылка
 GITLAB_TOKEN=                       # only to create a merge request
 DOCHUB_REMOTE_PROTOCOL=https        # or ssh — what your origin expects
 DOCHUB_TARGET_BRANCH=main

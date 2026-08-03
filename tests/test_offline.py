@@ -22,6 +22,10 @@ NETWORK_MODULES = {'httpx', 'requests', 'urllib.request', 'urllib3', 'aiohttp',
 # Где сеть разрешена и почему
 ALLOWED = {
     'publisher.py': 'API GitLab: создание merge request',
+    # Доменная схема живёт у компании и меняется; держать её копию в
+    # актуальном состоянии руками — не работа пользователя. Ссылка задаётся
+    # им самим, а без сети берётся ранее скачанная копия, см. ddd_source
+    'ddd_source.py': 'доменная схема по ссылке, если её задали ссылкой',
 }
 
 
@@ -70,3 +74,43 @@ class TestNoNetwork:
             encoding='utf-8')
         assert 'DOCHUB_METAMODEL_DIR' in source
         assert 'http' not in source.lower().replace('https://', '')
+
+
+class TestDddByLinkStaysOptional:
+    """Сеть — только на подготовке, и только если схему задали ссылкой."""
+
+    def test_work_reads_the_downloaded_copy(self, tmp_path, monkeypatch):
+        """
+        После подготовки инструмент в сеть не ходит.
+
+        В закрытом контуре её может не быть вовсе, а схему к этому моменту
+        уже скачали в dochub_repo_sync.
+        """
+        import urllib.request
+
+        from app.core import ddd_source
+
+        def explode(*args, **kwargs):
+            raise AssertionError('обращение в сеть после подготовки')
+
+        monkeypatch.setattr(urllib.request, 'urlopen', explode)
+        local = tmp_path / 'ddd.drawio'
+        local.write_text('<mxfile/>', encoding='utf-8')
+
+        assert ddd_source.local_path(str(local))[0] == local
+
+    def test_only_preparation_downloads(self):
+        """Скачивает только refresh — его зовёт шаг подготовки."""
+        source = (APP / 'core' / 'ddd_source.py').read_text(encoding='utf-8')
+        after_refresh = source[source.index('def refresh('):]
+
+        assert 'urlopen' in after_refresh
+        assert 'urlopen' not in source[:source.index('def refresh(')]
+
+    def test_brief_does_not_download(self):
+        """Бриф читает копию, а не тянет схему заново."""
+        server = (APP / 'mcp_server.py').read_text(encoding='utf-8')
+        brief = server[server.index('async def dochub_brief'):]
+
+        assert 'ddd_source.local_path' in brief
+        assert 'ddd_source.refresh' not in brief

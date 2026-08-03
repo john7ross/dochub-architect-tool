@@ -9,8 +9,8 @@ transfers a C4 diagram into a DocHub repository, a person checks the result on
 a split screen and confirms publication.
 
 - 20 MCP tools, no drift between declaration and implementation
-- 220 tests, all green
-- Verified on a real repository (1235 components, 228 contexts) and a real
+- 260 tests, all green (10 of them need access to the architecture repository)
+- Verified on a real repository (1172 components, 210 contexts) and a real
   service diagram (86 elements, 67 links)
 - Every tool driven through a real MCP client before this release, see
   [Release audit](#release-audit)
@@ -80,7 +80,7 @@ code in process and stayed green throughout.
   manifest was not found — indistinguishable from "the file is simply not
   connected yet". Now it says what it looked for and where.
 
-Everything else held: 18 tools answered, the split-screen preview rendered both
+Everything else held: 20 tools answered, the split-screen preview rendered both
 panes with real content, zoom worked on both, live reload picked up a YAML edit,
 all eight preview routes had a caller and every caller had a route, and
 publication refused to commit without explicit confirmation.
@@ -99,6 +99,41 @@ recoverable from the DDD schema, otherwise asked from the user.
 **Rendering DrawIO without a browser.** The engine is JavaScript. The preview
 draws the diagram; exporting to PNG or PDF without an open preview needs
 Draw.io Desktop, and the tool says so rather than substituting a reconstruction.
+
+## Release 0.3.0 closeout
+
+A second audit pass, over every surface at once — including the ones the first
+pass never touched: the preview UI in a browser, all 156 schemas the project
+ships, and the seams between tools. Found and fixed:
+
+**Seams between tools.** The brief offered `own_root` as a frame caption while
+the draft matched identifier roots: the brief's answer did not fit, and every
+component was silently declared foreign — an empty file referencing nothing.
+`dochub_repo_sync` created the work branch but reported the previous one, and
+the schema was committed into `main`, past the merge request; publishing into
+the target branch is now refused. The draft never wrote a file while every
+later step worked with one, and nothing said so.
+
+**Parsing real files.** A component named in Russian produced an empty
+identifier and vanished from the draft without a word — 17% of all elements in
+the corpus. C4 macros with a named argument (`$link=""`) were not parsed at
+all: 12 schemas returned zero elements. HTML from DrawIO captions leaked into
+identifiers, and a line break in a caption broke the saved YAML. Pages of a
+multi-page file were merged into one context — the page is now chosen by the
+person, in automode too.
+
+**Preview.** The right pane answered "context not found" for every new schema:
+the manifest was built without the file being edited. Export buttons ran off
+the window. A typo in the YAML blanked the left pane as well — the original the
+person compares against. The error message was a YAML parser dump.
+
+**Data and environment.** The domain schema is no longer shipped as a copy: it
+is given by a link and refreshed at the preparation step, and the work then
+runs on the downloaded copy. "git not found" is no longer reported as "no
+origin".
+
+Every finding is covered by tests: 260 in the private version, 257 in the
+public one.
 
 ## Known limits
 

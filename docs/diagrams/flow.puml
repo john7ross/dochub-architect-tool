@@ -10,6 +10,8 @@ participant "MCP server" as mcp
 participant "Preview" as preview
 database "Architecture\nrepository" as repo
 participant GitLab as gitlab
+database "Domain schema (link or file)" as ddd
+database "Service repository" as code
 
 == Preparation ==
 
@@ -25,7 +27,12 @@ end
 
 agent -> mcp: dochub_repo_sync(update=true, branch)
 mcp -> repo: ls-remote, fetch, fast-forward, work branch
-mcp --> agent: reachable, behind, uncommitted, branch
+mcp -> ddd: downloads the domain schema when it is given by link
+note right of mcp
+  The only step that goes to the network for the schema.
+  Everything after this reads the downloaded copy.
+end note
+mcp --> agent: reachable, behind, uncommitted, branch, ddd refreshed
 
 alt Repository unreachable
   agent -> user: The reason, quoted: VPN, proxy or rights
@@ -34,7 +41,14 @@ end
 agent -> mcp: dochub_lessons()
 mcp --> agent: rules confirmed on earlier schemas
 agent -> mcp: dochub_brief(schema, query, project_root)
-mcp --> agent: facts and only the questions nothing answers
+mcp -> code: reads the service repository when project_root is given
+mcp --> agent: facts, code discrepancies, and the questions nothing answers
+
+alt The DrawIO file has several pages
+  mcp --> agent: the page list with element counts
+  agent -> user: Which page do we take? They are different diagrams
+  user --> agent: names the page
+end
 
 alt Diagram is a logical one (sequence, activity)
   mcp --> agent: rejected with an explanation
@@ -50,10 +64,12 @@ end
 
 == Reconciliation with the code (only when sources are given) ==
 
-agent -> mcp: dochub_reconcile_with_code(schema, project)
-mcp --> agent: discrepancies with file and line
-agent -> user: Shows the list, asks about each doubtful item
+agent -> user: Shows the discrepancies the brief already found, with file and line
 user --> agent: decides what goes in and what stays out
+note right of agent
+  The full list, when it did not fit into the brief:
+  dochub_reconcile_with_code(schema, project)
+end note
 
 == Building ==
 

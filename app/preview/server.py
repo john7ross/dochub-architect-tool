@@ -97,7 +97,15 @@ class PreviewServer:
                 self._cached_contexts = self.renderer.list_contexts(self.yaml_path)
                 self._cached_error = None
             except Exception as e:
-                self._cached_contexts, self._cached_error = [], str(e)
+                # Дамп разборщика YAML пользователю ничего не говорит:
+                # называем файл и то, что с ним делать
+                detail = ' '.join(str(e).split())[:200]
+                self._cached_contexts = []
+                self._cached_error = (
+                    f'{self.yaml_path.name}: файл не читается как YAML. '
+                    f'Проверьте отступы, кавычки и незакрытые скобки — '
+                    f'разборщик остановился так: {detail}'
+                )
             self._cached_version = version
 
         return {

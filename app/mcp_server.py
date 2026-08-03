@@ -46,10 +46,11 @@ from app.core.parsers.drawio_parser import DrawIOParser
 from app.core.parsers.plantuml_parser import PlantUMLParser
 from app.core.publisher import Publisher, PublishError, changed_paths
 from app.core.reconcile import Reconciler
+from app.core import ddd_source
 from app.core import settings as settings_module
 from app.utils.paths import git_command
 from app.core import workspace as workspace_module
-from app.core.transformer import Transformer
+from app.core.transformer import CYRILLIC, Transformer
 from app.preview.renderer import PreviewError, PreviewRenderer
 from app.preview.server import PreviewServer
 
@@ -425,7 +426,10 @@ class DDDTreeInput(ExistingPath):
     @field_validator('ddd_path')
     @classmethod
     def validate_ddd_path(cls, v: Optional[str]) -> Optional[str]:
-        return cls._check(v, "DDD-схема") if v else None
+        # Схему задают и ссылкой: файла на диске тогда ещё нет
+        if not v or ddd_source.is_url(v):
+            return v
+        return cls._check(v, "DDD-схема")
 
 
 class PreviewInput(ExistingPath):
@@ -604,7 +608,10 @@ class BriefInput(ExistingPath):
     @field_validator('ddd_path')
     @classmethod
     def validate_brief_ddd(cls, v: Optional[str]) -> Optional[str]:
-        return cls._check(v, "DDD-схема") if v else None
+        # Схему задают и ссылкой: файла на диске тогда ещё нет
+        if not v or ddd_source.is_url(v):
+            return v
+        return cls._check(v, "DDD-схема")
 
     @field_validator('manifest_path')
     @classmethod
@@ -615,6 +622,23 @@ class BriefInput(ExistingPath):
     @classmethod
     def validate_brief_project(cls, v: Optional[str]) -> Optional[str]:
         return cls._check(v, "Каталог с кодом") if v else None
+
+
+def _one_line(text: object) -> str:
+    """
+    Свернуть текст в одну строку.
+
+    Комментарии черновика перечисляют названия со схемы. Перенос строки внутри
+    названия уводит вторую половину на строку без `#`, и сохранённый файл
+    перестаёт быть YAML.
+
+    Args:
+        text: Любое значение со схемы
+
+    Returns:
+        Однострочная запись
+    """
+    return ' '.join(str(text or '').split())
 
 
 def _read_revision(repo_path: Path, revision: str, relative: str) -> Optional[Dict]:
@@ -731,10 +755,39 @@ def _load_manifest(manifest_path: Optional[str], fallback: Path) -> Dict:
     Returns:
         Манифест
     """
+    own = yaml.safe_load(fallback.read_text(encoding='utf-8')) or {}
+
     resolved = workspace_module.resolve('manifest_path', manifest_path)
-    if resolved:
-        return ManifestLoader().load(Path(resolved))
-    return yaml.safe_load(fallback.read_text(encoding='utf-8')) or {}
+    if not resolved:
+        return own
+
+    manifest = ManifestLoader().load(Path(resolved))
+
+    # Новая схема ещё не подключена к дереву репозитория — в манифесте её
+    # нет. Без подмешивания редактируемого файла его собственный контекст
+    # «не находится» ровно до регистрации, то есть на всём этапе показа
+    return _merge_manifest(manifest, own)
+
+
+def _merge_manifest(manifest: Dict, own: Dict) -> Dict:
+    """
+    Наложить редактируемый файл поверх манифеста репозитория.
+
+    Args:
+        manifest: Манифест репозитория
+        own: Содержимое редактируемого файла
+
+    Returns:
+        Копия манифеста с разделами файла
+    """
+    merged = dict(manifest)
+    for section, values in own.items():
+        current = merged.get(section)
+        if isinstance(values, dict) and isinstance(current, dict):
+            merged[section] = {**current, **values}
+        else:
+            merged[section] = values
+    return merged
 
 
 @mcp.tool(
@@ -2276,7 +2329,11 @@ async def dochub_ddd_tree(params: DDDTreeInput) -> str:
         - "куда положить схему сервиса заказов" -> query="order"
         - "покажи домены" -> без query
     """
-    ddd_path = Path(_need(params.ddd_path, 'ddd_path', 'путь к ddd.drawio'))
+    source = _need(params.ddd_path, 'ddd_path', 'путь к ddd.drawio')
+
+    ddd_path, problem = ddd_source.local_path(source)
+    if not ddd_path:
+        return json.dumps({"error": problem}, ensure_ascii=False, indent=2)
 
     try:
         parser = DDDParser(str(ddd_path))
@@ -2367,7 +2424,8 @@ async def dochub_draft_from_schema(
     subdomain: str,
     repo_root: Optional[str] = None,
     yaml_path: Optional[str] = None,
-    own_root: Optional[str] = None
+    own_root: Optional[str] = None,
+    page: Optional[int] = None
 ) -> str:
     """Построить черновик DocHub YAML из схемы — структуру, но не смысл.
 
@@ -2411,6 +2469,25 @@ async def dochub_draft_from_schema(
     if not result.is_c4:
         return f"Ошибка: {result.error_message}"
 
+    # В одном файле DrawIO обычно несколько независимых диаграмм — по сервису
+    # на страницу. Слитые в один контекст, они дают схему, которой нет
+    pages = result.pages or []
+    if page is not None:
+        result = result.for_page(page)
+    elif len(pages) > 1:
+        listing = "\n".join(
+            f"  {index}. {name} — элементов: "
+            f"{sum(1 for c in result.components if c.page == index)}"
+            for index, name in enumerate(pages)
+        )
+        return (
+            f"В файле {len(pages)} страниц, а схема строится по одной.\n\n"
+            "Страницы — это разные диаграммы: слитые вместе, они дадут "
+            "контекст, которого нет ни на одной из них.\n\n"
+            "Спросите у пользователя, какая нужна, и повторите вызов "
+            f"с page:\n\n{listing}"
+        )
+
     owner_lookup = None
     own_file = None
 
@@ -2437,18 +2514,41 @@ async def dochub_draft_from_schema(
     # Схема описывает один сервис, остальные рамки — чужие поддомены.
     # Пока не сказано, какая рамка наша, черновик строить нельзя:
     # иначе чужие компоненты уедут в наш файл
-    if not own_root:
-        roots = sorted({
-            '.'.join(cid.split('.')[:2])
-            for cid in transformer.build_id_map(result.components).values()
-        })
+    roots = sorted({
+        '.'.join(cid.split('.')[:2])
+        for cid in transformer.build_id_map(result.components).values()
+    })
+
+    # Ни одного пригодного элемента: спрашивать «какой из них наш» не о чем.
+    # Так выглядят страницы бизнес-процессов и диаграммы уровня контекста —
+    # на них люди и системы, из которых состав сервиса не построить
+    if not roots:
+        where = f' на странице {page}' if page is not None else ''
         return (
-            "Не указано, какой сервис описывает схема (own_root).\n\n"
+            f"На схеме{where} нет ни одного элемента, из которого строится "
+            "состав сервиса.\n\n"
+            f"Разобрано элементов: {len(result.components)}, из них рамок: "
+            f"{sum(1 for c in result.components if c.is_boundary)}.\n\n"
+            "Так выглядят схемы уровня контекста (люди и системы целиком) и "
+            "страницы бизнес-процессов. Возьмите схему уровня контейнеров или "
+            "компонентов — либо другую страницу файла."
+        )
+
+    # own_root сверяется с корнями идентификаторов, а не с подписями рамок:
+    # чужое значение молча пометило бы своим чужое — и наоборот
+    if not own_root or own_root not in roots:
+        known = (
+            "Не указано, какой сервис описывает схема (own_root)."
+            if not own_root else
+            f"own_root={own_root!r} не совпал ни с одним корнем схемы."
+        )
+        return (
+            known + "\n\n"
             "Схема описывает один сервис; всё, что лежит в других рамках, "
             "принадлежит чужим поддоменам и должно заводиться у их владельцев, "
             "а у нас — только упоминаться в контексте.\n\n"
             "Спросите у пользователя, какая из рамок наша, и повторите вызов "
-            "с own_root:\n\n"
+            "с own_root ровно в этом виде:\n\n"
             + "\n".join(f"  - {root}" for root in roots)
         )
 
@@ -2466,6 +2566,33 @@ async def dochub_draft_from_schema(
         draft, allow_unicode=True, sort_keys=False, default_flow_style=False
     )
 
+    # Инструмент ничего не записывает: черновик сначала осмысляют. Но дальше
+    # проверка, регистрация и публикация работают с файлом, поэтому шаг
+    # «сохранить» нельзя оставлять подразумеваемым
+    where = f' в {yaml_path}' if yaml_path else ' в файл поддомена'
+    body = (
+        f"# Черновик НЕ записан на диск. Сохраните его{where} —\n"
+        "# dochub_validate_context, dochub_check_registration,\n"
+        "# dochub_register_schema и dochub_publish работают с файлом.\n"
+        "# Строки с # в конце файла — не часть YAML, их не сохраняйте.\n"
+    ) + body
+
+    # Идентификатор из русского названия — догадка транслитерации, а имена в
+    # репозитории выбирает человек. Молчать о ней нельзя: она попадёт в файл
+    translit = [
+        (component_id, data.get('title', ''))
+        for component_id, data in (draft.get('components') or {}).items()
+        if CYRILLIC.search(str(data.get('title', '')))
+    ]
+    if translit:
+        body += (
+            "\n# ИДЕНТИФИКАТОРЫ НИЖЕ ПОЛУЧЕНЫ ТРАНСЛИТЕРАЦИЕЙ русского\n"
+            "# названия. Покажите их пользователю: имена в репозитории\n"
+            "# выбирает он, а не инструмент.\n#\n"
+        )
+        for component_id, title in translit:
+            body += f"#   {component_id}  <-  {_one_line(title)}\n"
+
     if questionable:
         body += (
             "\n# СПРОСИТЕ ПОЛЬЗОВАТЕЛЯ про элементы ниже: включать их в схему\n"
@@ -2473,9 +2600,9 @@ async def dochub_draft_from_schema(
             "# конкретной схемы и принимает его пользователь.\n#\n"
         )
         for item in questionable:
-            body += f"#   {item['title']} ({item['component_id']})\n"
+            body += f"#   {_one_line(item['title'])} ({item['component_id']})\n"
             for reason in item['reasons']:
-                body += f"#     - {reason}\n"
+                body += f"#     - {_one_line(reason)}\n"
 
     if not foreign:
         return body
@@ -2489,9 +2616,12 @@ async def dochub_draft_from_schema(
         "#"
     ]
     for item in foreign:
+        # None вместо владельца читается как «владелец известен и он None»:
+        # для таких компонентов владельца ищут через dochub_locate_owner
+        owner = item['owner_file'] if item['owner_known'] else 'владелец не найден'
         lines.append(
-            f"#   {item['component_id']}  ->  {item['owner_file']}"
-            f"  [{item['entity']}]  {item['title']}"
+            f"#   {item['component_id']}  ->  {owner}"
+            f"  [{item['entity']}]  {_one_line(item['title'])}"
         )
 
     return body + "\n" + "\n".join(lines) + "\n"
@@ -2789,7 +2919,18 @@ async def dochub_repo_sync(params: RepoSyncInput) -> str:
             + ('ключ SSH' if report.protocol == 'ssh' else 'токен или сохранённые учётные данные')
         )
 
+    # Доменную схему обновляем здесь же, на подготовке. Дальше — с брифа и до
+    # публикации — работа идёт по скачанной копии и в сеть не ходит
+    ddd = {"source": current.ddd_path, "path": None, "updated": False}
+    if current.ddd_path:
+        path, problem = ddd_source.refresh(current.ddd_path)
+        ddd["path"] = str(path) if path else None
+        ddd["updated"] = bool(path) and problem is None
+        if problem:
+            warnings.append(problem)
+
     return json.dumps({
+        "ddd": ddd,
         "repo_root": report.repo_root,
         "remote_url": report.remote_url,
         "protocol": report.protocol,
@@ -2827,12 +2968,29 @@ def _brief_questions(
     """
     questions: List[Dict[str, str]] = []
 
+    # Страницы спрашиваются первыми: от ответа зависит и состав схемы, и
+    # корни, из которых потом выбирается own_root.
+    # Умолчания здесь нет и в automode тоже: страницы — разные задачи, и
+    # какую из них заводить в репозиторий, решает только человек
+    if len(facts.get('pages') or []) > 1:
+        pages = facts['pages']
+        questions.append({
+            "id": "page",
+            "question": "Какая страница файла нужна? Это разные диаграммы, "
+                        "и в одну схему они не сливаются",
+            "why": "страниц в файле: " + str(len(pages)) + " — "
+                   + ", ".join(f"{p['index']}. {p['name']} ({p['elements']})"
+                               for p in pages[:10]),
+            "default": ""
+        })
+
     if len(facts['own_root_candidates']) != 1:
         questions.append({
             "id": "own_root",
             "question": "Какой сервис описывает схема? Всё, что вне его рамки, "
                         "принадлежит чужим поддоменам",
-            "why": f"на верхнем уровне схемы рамок: {len(facts['own_root_candidates'])}",
+            "why": f"корней в схеме: {len(facts['own_root_candidates'])}; "
+                   f"ответ передаётся в own_root как есть",
             "default": facts['own_root_candidates'][0] if facts['own_root_candidates'] else ''
         })
 
@@ -2844,6 +3002,20 @@ def _brief_questions(
                    f"{len(facts['placement_candidates'])}",
             "default": facts['placement_candidates'][0]['path']
                        if facts['placement_candidates'] else ''
+        })
+
+    code = facts.get('code') or {}
+    if code.get('summary'):
+        counts = code['summary']
+        questions.append({
+            "id": "code_mismatch",
+            "question": "Код и схема расходятся — что из этого попадает в "
+                        "архитектурную схему, а что нет",
+            "why": "сверено файлов: " + str(code['scanned_files']) + ", "
+                   + ", ".join(f'{kind}: {number}' for kind, number in counts.items()),
+            # Умолчания нет: решение зависит от того, устарела схема или
+            # элемент логический, и принимает его человек
+            "default": ""
         })
 
     if not project_root:
@@ -2959,6 +3131,7 @@ async def dochub_brief(params: BriefInput) -> str:
         "own_root_candidates": [],
         "known_components": [],
         "foreign_candidates": [],
+        "code": None,
         "lessons": [],
     }
 
@@ -2982,7 +3155,35 @@ async def dochub_brief(params: BriefInput) -> str:
             c.title for c in parsed.components
             if c.is_boundary and not c.parent
         ]
-        facts["own_root_candidates"] = facts["top_level"][:5]
+        # Страницы одного файла DrawIO — разные диаграммы. Если про них не
+        # сказать, агент попросит черновик по всему файлу и получит отказ
+        facts["pages"] = [
+            {
+                "index": index,
+                "name": name,
+                "elements": sum(1 for c in parsed.components if c.page == index)
+            }
+            for index, name in enumerate(parsed.pages or [])
+        ]
+        # Кандидаты берутся в том же виде, в каком own_root ждёт
+        # dochub_draft_from_schema: это корни идентификаторов, а не подписи
+        # рамок. Иначе ответ на вопрос брифа черновик не примет.
+        # Порядок важен: в automode ответа ждать не от кого и берётся первый.
+        # Схему называют по её сервису, поэтому сначала идут корни, созвучные
+        # имени файла, а среди них — самый весомый. По одному весу первой
+        # оказалась бы база данных: таблиц на схеме всегда больше
+        weight: Dict[str, int] = {}
+        for cid in Transformer('', '', '').build_id_map(parsed.components).values():
+            root = '.'.join(cid.split('.')[:2])
+            weight[root] = weight.get(root, 0) + 1
+
+        stem = ''.join(ch for ch in schema_path.stem.lower() if ch.isalnum())
+
+        def by_name(root: str) -> tuple:
+            tail = ''.join(ch for ch in root.split('.')[-1].lower() if ch.isalnum())
+            return (0 if stem and stem in tail else 1, -weight[root], root)
+
+        facts["own_root_candidates"] = sorted(weight, key=by_name)
 
         # Что из схемы уже описано в репозитории — чтобы не плодить дубли
         manifest_path = settings_module.resolve('manifest_path', params.manifest_path)
@@ -3006,12 +3207,53 @@ async def dochub_brief(params: BriefInput) -> str:
         # Чужое — рамки верхнего уровня помимо своего сервиса. Вложенные
         # рамки (Controllers, Domain, Clients) — это части своего сервиса,
         # и записывать их в чужие поддомены нельзя
-        own = set(facts["own_root_candidates"][:1])
+        # Здесь сравниваются подписи рамок, а не корни идентификаторов:
+        # own_root_candidates живут в другом пространстве имён
+        own = set(facts["top_level"][:1])
         facts["foreign_candidates"] = [
             title for title in facts["top_level"] if title not in own
         ][:10]
 
-    ddd_path = settings_module.resolve('ddd_path', params.ddd_path)
+        # Дали код — сверяем с ним прямо здесь. Схему рисовали раньше, код
+        # менялся: без этого бриф спросил бы «а где код», получил ответ и не
+        # заглянул в него ни разу
+        if params.project_root:
+            try:
+                report = Reconciler(Path(params.project_root)).reconcile(
+                    parsed.components)
+            except Exception as e:  # noqa: BLE001 - причина уходит пользователю
+                facts.setdefault("warnings", []).append(
+                    f'код не удалось разобрать: {type(e).__name__}: {e}')
+            else:
+                order = {'name_mismatch': 0, 'case_mismatch': 1,
+                         'on_schema_not_in_code': 2, 'in_code_not_on_schema': 3}
+                items = sorted(report.discrepancies,
+                               key=lambda d: (order.get(d.kind, 9), d.name.lower()))
+                facts["code"] = {
+                    "project_root": str(params.project_root),
+                    "scanned_files": report.scanned_files,
+                    "symbols_found": report.symbols_found,
+                    "matched": len(report.matched),
+                    "summary": report.by_kind,
+                    "discrepancies": [
+                        {
+                            "kind": d.kind,
+                            "name": d.name,
+                            "detail": d.detail,
+                            "code_locations": d.code_locations[:2]
+                        }
+                        for d in items[:20]
+                    ]
+                }
+
+    ddd_source_value = settings_module.resolve('ddd_path', params.ddd_path)
+    ddd_path = None
+    if ddd_source_value:
+        # Бриф уже не ходит в сеть: схему обновили на подготовке
+        ddd_path, problem = ddd_source.local_path(ddd_source_value)
+        if problem:
+            facts.setdefault("warnings", []).append(problem)
+
     if ddd_path and Path(ddd_path).exists():
         try:
             tree = DDDParser(str(ddd_path)).get_domain_tree()
@@ -3064,7 +3306,9 @@ async def dochub_brief(params: BriefInput) -> str:
         '',
     ]
     for item in questions:
-        if current.automode:
+        # Вопрос без умолчания в automode не закрывается: в репозиторий
+        # заводится конкретная схема, и назвать её может только человек
+        if current.automode and item["default"]:
             lines.append(f'- **{item["question"]}** → {item["default"]}')
         else:
             lines.append(f'- **{item["question"]}**  \n  _{item["why"]}_')
@@ -3080,6 +3324,8 @@ async def dochub_brief(params: BriefInput) -> str:
             "relations": facts["relations"],
             "top_level": facts["top_level"],
         },
+        "pages": facts.get("pages", []),
+        "code": facts.get("code"),
         "placement_candidates": facts["placement_candidates"],
         "own_root_candidates": facts["own_root_candidates"],
         "known_components": facts["known_components"][:50],

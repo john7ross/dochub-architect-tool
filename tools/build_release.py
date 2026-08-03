@@ -22,6 +22,7 @@ import sys
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = 'dochub-architect-tool'
@@ -210,10 +211,29 @@ def fetch_git(target: Path) -> str:
     """
     import json
 
-    request = urllib.request.Request(
-        GIT_API, headers={'User-Agent': 'dochub-architect-tool/build'})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        release = json.load(response)
+    def cached() -> Optional[Path]:
+        """Ранее скачанный MinGit: сборка не должна зависеть от api.github."""
+        found = sorted(
+            p for p in ROOT.parent.glob('MinGit-*-64-bit.zip')
+            if 'busybox' not in p.name
+        )
+        return found[-1] if found else None
+
+    try:
+        request = urllib.request.Request(
+            GIT_API, headers={'User-Agent': 'dochub-architect-tool/build'})
+        with urllib.request.urlopen(request, timeout=120) as response:
+            release = json.load(response)
+    except OSError as e:
+        # API отвечает не всегда, а нужный архив обычно уже лежит рядом:
+        # без этого сборка падает там, где качать нечего
+        local = cached()
+        if not local:
+            raise
+        log(f'api.github недоступен ({e}), беру скачанный git: {local.name}')
+        with zipfile.ZipFile(local) as z:
+            z.extractall(target / 'git')
+        return local.stem.replace('MinGit-', 'v').replace('-64-bit', '')
 
     asset = next(a for a in release['assets']
                  if a['name'].startswith('MinGit') and '64-bit' in a['name']
@@ -427,7 +447,10 @@ def main() -> int:
                         help='готовый zip embeddable-питона')
     args = parser.parse_args()
 
-    build = ROOT.parent / f'{NAME}-build'
+    # Каталог сборки — внутри проекта, а не рядом с ним: у частной и
+    # публичной версий имя проекта одно, и общий каталог они затирали друг
+    # у друга. Убирается сразу после упаковки: 340 МБ мусора никому не нужны
+    build = ROOT / '.build'
     if build.exists():
         shutil.rmtree(build)
     build.mkdir(parents=True)
@@ -460,6 +483,10 @@ def main() -> int:
                 z.write(path, Path(NAME) / path.relative_to(build))
 
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+    # Архив собран — распакованная копия больше не нужна
+    shutil.rmtree(build, ignore_errors=True)
+
     log('')
     log(f'готово: {archive}')
     log(f'размер: {archive.stat().st_size / 1048576:.1f} МБ')

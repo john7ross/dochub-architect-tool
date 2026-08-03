@@ -56,6 +56,22 @@ PATH_FIELDS = ('repo_root', 'manifest_path', 'ddd_path', 'projects_root', 'drawi
 BOOL_FIELDS = ('mr_squash', 'mr_remove_source_branch', 'automode')
 
 
+def _is_url(value: str) -> bool:
+    """
+    Значение — ссылка, а не путь.
+
+    Доменную схему задают ссылкой, чтобы не следить за свежестью копии
+    руками. Путь и ссылка обрабатываются по-разному везде, где встречаются.
+
+    Args:
+        value: Значение настройки
+
+    Returns:
+        True для http и https
+    """
+    return str(value).lower().startswith(('http://', 'https://'))
+
+
 @dataclass
 class Settings:
     """Настройки сервера с указанием, откуда взято каждое значение."""
@@ -259,7 +275,10 @@ def load(explicit_env: Optional[str] = None) -> Settings:
                     continue
                 setattr(settings, name, parsed)
             elif name in PATH_FIELDS:
-                setattr(settings, name, str(Path(value).expanduser()))
+                # Ссылку раскладывать по правилам файловой системы нельзя:
+                # https:// превратится в https:\ и перестанет быть ссылкой
+                setattr(settings, name, value if _is_url(value)
+                        else str(Path(value).expanduser()))
             else:
                 setattr(settings, name, value)
 
@@ -281,6 +300,10 @@ def load(explicit_env: Optional[str] = None) -> Settings:
 
     for name in PATH_FIELDS:
         value = getattr(settings, name)
+        # Доменная схема бывает задана ссылкой: её скачивают при обращении,
+        # и проверять существование пути тут нечего
+        if value and _is_url(value):
+            continue
         if value and not Path(value).exists():
             settings.warnings.append(f'{name}: путь не существует — {value}')
 

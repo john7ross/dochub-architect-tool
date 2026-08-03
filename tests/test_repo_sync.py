@@ -136,6 +136,20 @@ class TestSync:
         assert report.dirty_files == ['arch.yaml']
         assert any('несохранённые' in w for w in report.warnings)
 
+    def test_missing_git_is_not_reported_as_missing_origin(self, repo, monkeypatch):
+        """
+        «git не найден» и «нет origin» лечатся по-разному.
+
+        В исходной установке без git инструмент говорил про origin, и
+        пользователь искал проблему не там.
+        """
+        import app.core.publisher as publisher_module
+
+        monkeypatch.setattr(publisher_module, 'git_command', lambda: 'git-которого-нет')
+
+        with pytest.raises(PublishError, match='git не найден'):
+            Publisher(repo).sync()
+
 
 class TestWorkBranch:
     """Рабочая ветка заводится до работы, а не в момент публикации."""
@@ -145,6 +159,18 @@ class TestWorkBranch:
         assert report.branch_created == 'feature/orders'
         assert Publisher(repo).current_branch() == 'feature/orders'
 
+    def test_report_says_where_we_are_now(self, repo):
+        """
+        current_branch из отчёта уходит в dochub_publish как ветка коммита.
+
+        Пока там оставалась ветка до переключения, схема коммитилась в main —
+        мимо merge request и мимо ревью.
+        """
+        report = Publisher(repo).sync(branch='feature/orders')
+
+        assert report.current_branch == 'feature/orders'
+        assert report.current_branch == Publisher(repo).current_branch()
+
     def test_existing_branch_switched(self, repo):
         Publisher(repo).sync(branch='feature/orders')
         git('checkout', '-q', 'main', cwd=repo)
@@ -152,6 +178,7 @@ class TestWorkBranch:
         report = Publisher(repo).sync(branch='feature/orders')
         assert report.branch_created is None
         assert report.branch_switched == 'feature/orders'
+        assert report.current_branch == 'feature/orders'
 
     def test_bad_branch_name_refused(self, repo):
         with pytest.raises(PublishError, match='Недопустимое имя ветки'):

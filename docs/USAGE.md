@@ -38,6 +38,13 @@ back is the list of questions nothing answers, each carrying the source it came
 from. With `automode` on, every question carries the default that will be
 applied instead.
 
+**Two sources of truth.** Without `project_root` the schema is built strictly
+from what is drawn. With it the brief reads the service repository and returns
+a `code` section: how many files were scanned, what matched, and three kinds
+of discrepancy — different spellings, a class only in the code, an element
+only on the diagram. Each discrepancy carries a file and a line. The path is a
+brief parameter, not a setting: every diagram has its own repository.
+
 **`dochub_lessons`** — rules confirmed on earlier schemas. Call first, before
 asking questions: what is already recorded should not be asked again.
 
@@ -78,9 +85,14 @@ the user's call.
 
 ### Building
 
-**`dochub_draft_from_schema`** — a structural draft. `own_root` is required:
+**`dochub_draft_from_schema`** — a structural draft. For a multi-page DrawIO
+file `page` is required: pages are separate diagrams, and without a choice the
+tool returns their list instead of a draft. `own_root` is required:
 without knowing which service the diagram describes, foreign components would
-land in your file. Everything outside that frame is listed separately.
+land in your file. Everything outside that frame is listed separately. The
+value is an identifier root (`dotnet.orderServiceApi`), not a frame caption:
+anything else is refused with the list of roots found in the diagram — the
+same list `dochub_brief` offers.
 
 ### Checking
 
@@ -122,6 +134,18 @@ For a service repository it lists changed source files, so a schema can be
 limited to one task; for the architecture repository it lists added and changed
 components, aspects and contexts, which suits reviewing someone else's merge
 request.
+
+`DOCHUB_DDD_PATH` also accepts a link (http/https), not only a path. The
+server then downloads the domain schema itself — **during preparation**, in
+`dochub_repo_sync`, together with updating the repository. Nobody has to keep
+a local copy current.
+
+After that nothing reaches for the network again: the brief, the domain tree
+and everything else read the downloaded copy. If the refresh failed, work goes
+on with the previous copy and `dochub_repo_sync` says so in `warnings`. If
+there is no copy at all, the tool names the step that fetches it instead of
+reporting a missing file. A Google Drive view link is recognised and turned
+into a download address; so is a sign-in page arriving instead of a file.
 
 ## Examples
 

@@ -12,6 +12,7 @@ System_Boundary(tool, "DocHub Architect Tool") {
   Component(mcp, "MCP server", "Python, FastMCP, stdio", "20 tools: sync, brief, parse, search, validate, render, register, publish")
 
   Component(settings, "Settings", "Python, .env", "Paths, GitLab defaults, automode; environment over .env over saved paths")
+  Component(ddd_source, "Domain schema source", "Python, urllib", "The schema by link: downloaded during preparation, cached, read offline afterwards")
   Component(workspace, "Workspace", "Python, YAML", "Paths saved by the agent in earlier sessions")
 
   Component(parsers, "Parsers", "Python", "DrawIO with C4 attributes, PlantUML, DDD schema; geometric nesting; compressed files")
@@ -51,6 +52,7 @@ Rel(mcp, publisher, "Publishes")
 Rel(mcp, knowledge, "Reads and records rules")
 Rel(mcp, preview, "Starts the preview")
 Rel(mcp, settings, "Reads the configuration")
+Rel(mcp, ddd_source, "Refreshes the domain schema at the preparation step")
 Rel(settings, workspace, "Falls back to saved paths")
 Rel(publisher, repo, "Fetch, branch, commit, push")
 Rel(mcp, export, "Exports an image")

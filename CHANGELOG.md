@@ -11,6 +11,23 @@ repository before the work, and the brief that decides what is worth asking.
 
 ### Added
 
+- the brief reads the service code when it is given one. `project_root` used
+  to do nothing beyond silencing the question about sources — the code was
+  only read by `dochub_reconcile_with_code`, if the agent thought to call it.
+  Now the brief scans the repository itself and returns what matched and what
+  did not: different spellings, classes present only in the code, elements
+  present only on the diagram, each with a file and a line. What goes into the
+  schema is still asked, never decided
+
+- `DOCHUB_DDD_PATH` accepts a link, not only a path. The domain schema lives
+  with the company and changes; keeping a local copy current is not the user's
+  job. It is refreshed once, during preparation — `dochub_repo_sync` pulls the
+  repository and the schema together — and from the brief onwards everything
+  reads the downloaded copy without touching the network. A failed refresh
+  keeps the previous copy and says so; a Google Drive view link is turned into
+  a download address, and a sign-in page arriving instead of a file is
+  recognised and explained
+
 - Settings in `.env` (`.env.example` is the annotated template): paths, the
   GitLab protocol, the target branch, the branch prefix, the commit template,
   merge request parameters and `automode`. An environment variable of the same
@@ -68,6 +85,61 @@ repository before the work, and the brief that decides what is worth asking.
   Both versions work, the import decides at runtime
 
 ### Fixed
+
+- in `automode` the brief filled in every answer, including which page of a
+  multi-page file to take. A schema goes into the repository as one specific
+  diagram, so that answer belongs to the person, not to a heuristic: the page
+  question now carries no default and is asked in `automode` too
+
+- `dochub_draft_from_schema` merged every page of a multi-page DrawIO file
+  into one context. Pages are separate diagrams — usually one task per page,
+  and the next page is a different service — so the result was a context that
+  exists on none of them. The tool now takes `page`, refuses until one is
+  chosen and lists the pages with their element counts; `dochub_brief` returns
+  the same list and asks which page is meant
+
+- C4 macros as they are actually written were not parsed: a named argument
+  after the required ones (`$link=""`, `$tags=`) or an empty description
+  (`""`) made the whole file come back with zero elements, and the draft then
+  asked which service the schema describes while offering an empty list
+
+- the split-screen preview built the repository manifest and never mixed in
+  the file being edited, so a schema that is not yet imported into the tree —
+  every new one, at exactly the moment it is shown to the person who ordered
+  it — answered `контекст не найден` in the right pane. The manifest now
+  carries the edited file on top, so own contexts render and foreign
+  components still resolve
+- a DrawIO caption is HTML: markup and line breaks went straight into titles
+  and identifiers. Identifiers like `fontStyleFontSize11px...` appeared, and a
+  line break inside a title split the draft's comment block so the saved file
+  stopped being YAML
+- a component named in Russian produced an empty identifier and was dropped
+  from the draft without a word — on a corpus of real diagrams that silently
+  lost 17% of all elements. Names are transliterated now, and every
+  transliterated identifier is listed for the user to confirm or rename
+- an identifier could contain an empty segment (`mssql..orderItem`) when a
+  frame had no usable caption
+
+- `dochub_repo_sync` created or switched the work branch but kept reporting
+  the branch it started from in `current_branch`. An agent passing that value
+  on to `dochub_publish` committed the schema into `main` instead of the work
+  branch — past the merge request and past review. The report now says where
+  the repository actually is, and publishing into the target branch is refused
+  with an explanation
+- `dochub_draft_from_schema` never wrote a file, while every later step works
+  with one, and nothing said so — the chain broke at `dochub_validate_context`.
+  The draft now states where to save it, and the skill has the step
+- a foreign component whose owner could not be found was printed as
+  `-> None`, which reads as a known owner
+
+- `dochub_brief` offered `own_root` candidates as frame captions from the
+  diagram (`OrderService.Api`), while `dochub_draft_from_schema` matches
+  `own_root` against DocHub identifier roots (`dotnet.orderServiceApi`). An
+  agent that passed the brief's answer straight on got a draft where every
+  component was declared foreign: an empty `components` block and a context
+  referencing identifiers that exist nowhere. The brief now returns the roots
+  the draft expects, and the draft refuses a value that matches none of them
+  instead of building a silently wrong file
 
 - git was asked for credentials in a terminal that does not exist: with
   `GIT_TERMINAL_PROMPT=0` an inaccessible repository now reports a reason

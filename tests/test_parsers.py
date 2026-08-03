@@ -212,6 +212,48 @@ class TestDrawIOParser:
         assert api.technology == "REST"
 
 
+class TestDrawIOLabels:
+    """Подпись в DrawIO — это HTML, а из неё строятся заголовок и id."""
+
+    @staticmethod
+    def _schema(value: str) -> str:
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<mxfile><diagram><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="2" c4Type="container" value="{value}" parent="1">
+    <mxGeometry x="0" y="0" width="200" height="100" as="geometry"/>
+  </mxCell>
+</root></mxGraphModel></diagram></mxfile>"""
+
+    def test_markup_stripped_from_title(self, tmp_path):
+        """Иначе идентификатор получался вида fontStyleFontSize11px..."""
+        f = tmp_path / 'label.drawio'
+        f.write_text(self._schema(
+            '&lt;font style=&quot;font-size: 11px&quot;&gt;&lt;b&gt;Order&lt;/b&gt;'
+            '&amp;nbsp;Service&lt;/font&gt;'), encoding='utf-8')
+
+        result = DrawIOParser(str(f)).parse()
+
+        assert result.components[0].title == 'Order Service'
+
+    def test_line_break_becomes_space(self, tmp_path):
+        """
+        Перенос строки в названии рвал YAML черновика.
+
+        Вторая половина уходила на строку без `#`, и сохранённый файл уже
+        никто не мог прочитать — ошибка всплывала в dochub_validate_context.
+        """
+        f = tmp_path / 'break.drawio'
+        f.write_text(self._schema(
+            'PaymentGateway_Client.&lt;br&gt;onStateChanged'),
+            encoding='utf-8')
+
+        title = DrawIOParser(str(f)).parse().components[0].title
+
+        assert '\n' not in title
+        assert title == 'PaymentGateway_Client. onStateChanged'
+
+
 class TestDDDParser:
     """Тесты DDD парсера."""
 

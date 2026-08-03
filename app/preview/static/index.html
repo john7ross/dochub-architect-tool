@@ -37,6 +37,14 @@
     padding: 6px 12px; background: var(--panel);
     border-bottom: 1px solid var(--line); flex: none;
     font-size: 12px; color: var(--muted);
+    /* В узком окне панели кнопок не хватает ширины. Без переноса кнопки
+       выгрузки уезжали за край экрана, и страница получала горизонтальную
+       прокрутку вместо второй строки тулбара */
+    flex-wrap: wrap; row-gap: 4px;
+  }
+  .pane-head .name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 40%;
   }
   .pane-head .name { color: var(--text); font-weight: 500; }
   .pane-body { flex: 1; overflow: hidden; position: relative; background: #fff; }
@@ -471,14 +479,17 @@ async function poll() {
     $('source-name').textContent = state.source_name || '';
     $('yaml-name').textContent = state.yaml_name || '';
 
+    // Оригинал схемы к ошибке в YAML отношения не имеет: без этого
+    // опечатка в правке гасила и левую панель, лишая пользователя
+    // картинки, с которой он как раз и сверяется
+    if (!sourceLoaded) await loadSource();
+
     if (state.error) {
       setStatus(state.error, true);
       showMessage($('yaml-body'), state.error, true);
       version = state.version;
       return;
     }
-
-    if (!sourceLoaded) await loadSource();
 
     const ids = state.contexts.map((c) => c.id);
     const optionsChanged =
