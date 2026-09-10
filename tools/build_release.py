@@ -14,7 +14,6 @@
 """
 
 import argparse
-import compileall
 import hashlib
 import shutil
 import subprocess
@@ -136,16 +135,60 @@ def prepare_runtime(runtime_zip: Path, target: Path) -> None:
     packages = target / 'Lib' / 'site-packages'
     packages.mkdir(parents=True, exist_ok=True)
 
-    log('ставлю зависимости в рантайм')
+    # Колёса берутся под рантайм из архива, а не под интерпретатор сборщика.
+    # На машине сборки стоит свой выпуск Python, и без этих флагов pip кладёт
+    # в рантайм 3.11 бинарники под чужой ABI: pydantic и cffi молча
+    # не импортируются, и узнаёт об этом уже получатель
+    major, minor, _ = PYTHON_VERSION.split('.')
+    log(f'ставлю зависимости в рантайм (колёса под cp{major}{minor} win_amd64)')
     subprocess.run(
         [sys.executable, '-m', 'pip', 'install', '--quiet', '--target',
-         str(packages), '-r', str(ROOT / 'requirements.txt')],
+         str(packages), '-r', str(ROOT / 'requirements.txt'),
+         '--only-binary=:all:',
+         '--python-version', f'{major}.{minor}',
+         '--implementation', 'cp',
+         '--abi', f'cp{major}{minor}',
+         '--platform', 'win_amd64',
+         # Свой кэш байт-кода pip пишет интерпретатором сборщика, а тот
+         # помечает .pyc чужим тегом: рантайму 3.11 они бесполезны, а вес
+         # и путь машины сборки в архив уносят
+         '--no-compile'],
         check=True, stdin=subprocess.DEVNULL
     )
 
+    # Обёртки консольных скриптов: pip кладёт в bin/ по .exe на каждый
+    # entry_points, и в каждую зашит shebang с путём интерпретатора машины
+    # сборки — с именем её пользователя, если Python стоит в профиле. У
+    # получателя такого пути нет, так что обёртки нерабочие с самого начала,
+    # а всё в проекте и так зовётся через runtime/python.exe -m
+    scripts = packages / 'bin'
+    if scripts.is_dir():
+        count = len(list(scripts.iterdir()))
+        shutil.rmtree(scripts)
+        log(f'убраны обёртки pip из bin/: {count}')
+
     # Кэш байт-кода: первый запуск сервера у пользователя не должен уходить
-    # на компиляцию всего pydantic
-    compileall.compile_dir(str(packages), quiet=2, force=False)
+    # на компиляцию всего pydantic. Компилирует сам рантайм из архива, иначе
+    # тег .pyc не совпадёт и получатель скомпилирует всё заново.
+    # -s срезает путь машины сборки: без него имя её пользователя уезжает
+    # в каждый .pyc, а в трассировках у получателя стоят чужие каталоги
+    subprocess.run(
+        [str(target / 'python.exe'), '-m', 'compileall', '-q',
+         '-s', str(target.parent), str(packages)],
+        check=False, stdin=subprocess.DEVNULL
+    )
+
+    # Часть кэша рождается раньше compileall и мимо -s: pywin32 кладёт в
+    # site-packages свой .pth, и интерпретатор импортирует его ещё на старте.
+    # Такой .pyc уносит в архив путь машины сборки вместе с именем её
+    # пользователя, поэтому выбрасываем: получатель скомпилирует эти модули
+    # сам при первом импорте
+    marker = str(ROOT).encode()
+    dropped = [p for p in packages.rglob('*.pyc') if marker in p.read_bytes()]
+    for path in dropped:
+        path.unlink()
+    if dropped:
+        log(f'выброшено .pyc с путём машины сборки: {len(dropped)}')
 
 
 def fetch_jre(target: Path) -> str:
@@ -350,20 +393,33 @@ only to reach your GitLab afterwards.
 
 Steps:
 
-1. Unpack anywhere, for example C:\dochub-architect-tool
-   (a path without spaces or non-latin characters is safer).
+1. Unpack the archive into a SHORT path: C:\\dochub-architect-tool or
+   D:\\dochub-architect-tool. This is a requirement, not a suggestion.
 
-2. Copy .env.example to .env and fill in:
+   Windows cannot open a file whose full path is longer than 260 characters,
+   and this archive contains deeply nested ones. Unpacked from Downloads or
+   the Desktop it extracts halfway and silently: some files simply never
+   appear, and it breaks later, somewhere that looks unrelated. For the same
+   reason the path must contain no spaces and no non-latin characters.
+
+2. Clone your architecture repository if you have not already. The tool works
+   on a local copy and never creates one itself. git ships inside the archive:
+
+     runtime\\git\\cmd\\git.exe clone <your repository URL> C:\\repos\\architectural-repository
+
+3. Copy .env.example to .env and fill in:
      DOCHUB_REPO_ROOT   — where the architecture repository is cloned
      DOCHUB_DDD_PATH    — your company domain schema (.drawio)
-     GITLAB_TOKEN       — a token with the api scope; only needed to open a
-                          merge request
+     GITLAB_TOKEN       — a token with the api scope. Optional: everything
+                          works without it, you just open the merge request
+                          yourself, through the link the tool prints after
+                          pushing the branch.
 
-3. Run "check.bat" — it reports whether everything is in place.
+4. Run "check.bat" — it reports whether everything is in place.
 
-4. Run "connect-to-claude.bat" and restart Claude Code.
+5. Run "connect-to-claude.bat" and restart Claude Code.
 
-5. Tell the agent: "here is a service diagram, transfer it into DocHub" and
+6. Tell the agent: "here is a service diagram, transfer it into DocHub" and
    give it the path to a .drawio or .puml file. It asks for what is missing.
 
 Documentation: README.md, docs/USAGE.md, skills/dochub-architect/SKILL.md
@@ -380,23 +436,35 @@ READ_ME = '''DocHub Architect Tool — перенос схем в архитек
 
 Порядок:
 
-1. Распакуйте архив куда угодно, например в C:\\dochub-architect-tool
-   (в пути лучше без пробелов и кириллицы).
+1. Распакуйте архив в КОРОТКИЙ путь: C:\\dochub-architect-tool или
+   D:\\dochub-architect-tool. Это обязательное условие, а не пожелание.
 
-2. Скопируйте .env.example в .env и впишите:
+   Windows не открывает файлы, полный путь к которым длиннее 260 символов,
+   а внутри архива есть файлы с глубокой вложенностью. Из «Загрузок» или
+   с рабочего стола архив распакуется наполовину и молча: часть файлов
+   просто не появится, а сломается это потом и в неочевидном месте.
+   По той же причине в пути не должно быть пробелов и кириллицы.
+
+2. Склонируйте свой архитектурный репозиторий, если ещё не склонировали.
+   Инструмент работает с локальной копией и сам её не создаёт. git лежит
+   внутри архива:
+
+     runtime\\git\\cmd\\git.exe clone <адрес репозитория> C:\\repos\\architectural-repository
+
+3. Скопируйте .env.example в .env и впишите:
      DOCHUB_REPO_ROOT   — куда клонирован архитектурный репозиторий
      DOCHUB_DDD_PATH    — доменная схема вашей компании (.drawio)
-     GITLAB_TOKEN       — токен со scope api; нужен только для merge request
+     GITLAB_TOKEN       — токен со scope api. Необязателен: без него всё
+                          работает, merge request просто открываете сами
+                          по ссылке, которую инструмент печатает после
+                          отправки ветки.
 
-3. Запустите «check.bat» — он скажет, всё ли на месте.
+4. Запустите «check.bat» — он скажет, всё ли на месте.
 
-4. Запустите «connect-to-claude.bat» и перезапустите Claude Code.
+5. Запустите «connect-to-claude.bat» и перезапустите Claude Code.
 
-5. Скажите агенту: «вот схема сервиса, перенеси её в DocHub» и дайте путь
+6. Скажите агенту: «вот схема сервиса, перенеси её в DocHub» и дайте путь
    к .drawio или .puml. Дальше он спросит недостающее сам.
-
-Устанавливать не нужно ничего: Python, Java, git и все библиотеки лежат в
-каталоге runtime внутри архива.
 
 Документация: README.ru.md, docs/USAGE.ru.md, skills/dochub-architect/SKILL.md
 Безопасность и токены: SECURITY.md
